@@ -1,0 +1,19 @@
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.heic binary
+*.jxl binary
+*.tif binary
+*.tiff binary
+*.bmp binary
+*.psd binary
+*.dds binary
+*.tga binary
+*.pcx binary
+*.ppm binary

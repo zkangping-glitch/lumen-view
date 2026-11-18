@@ -1,0 +1,7 @@
+# Lumen View runtime libraries (installed into .pylibs by tools/fetch_libs.py)
+PySide6-Essentials==6.12.0
+pillow-heif==1.8.1
+pillow-jxl-plugin==1.3.8
+psd-tools==1.27.0
+rawpy==0.28.0
+# pulled in as dependencies: Pillow, numpy, attrs, packaging
