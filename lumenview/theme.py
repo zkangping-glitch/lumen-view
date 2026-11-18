@@ -1,214 +1,60 @@
-"""Lumen View visual language: warm light on charcoal, thin lines, quiet chrome."""
-
-from __future__ import annotations
-
+"""System appearance and quiet sage surfaces."""
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPalette
+BG, CANVAS, SURFACE, SURFACE_HI, BORDER = '#F6F6F4', '#F6F6F4', '#FFFFFF', '#E9EDEA', '#E5E7E5'
+TEXT, MUTED, DIM = '#242629', '#737675', '#737675'
+ACCENT, ACCENT_HOVER, ACCENT_TEXT, ACCENT_SOFT = '#3B6552', '#477B63', '#FFFFFF', '#E9EDEA'
 
-BG = "#0A0B0D"
-CANVAS = "#060708"
-SURFACE = "#0F1114"
-SURFACE_HI = "#15181C"
-BORDER = "#1B1E23"
-TEXT = "#ECE6DA"
-MUTED = "#8E887C"
-DIM = "#5D584F"
-ACCENT = "#E6B567"
-ACCENT_HOVER = "#F0C47C"
-ACCENT_TEXT = "#1A1408"
-ACCENT_SOFT = "#241D12"
-
-FONT_FAMILY = '"Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", sans-serif'
-
-QSS = f"""
-* {{
-    font-family: {FONT_FAMILY};
-    font-size: 10pt;
-    color: {TEXT};
-}}
-QMainWindow, QWidget#Root, QWidget#CanvasArea {{
-    background: {BG};
-}}
-QWidget#TopBar {{
-    background: transparent;
-}}
-QLabel#Brand {{
-    color: #CFC6B4;
-    font-size: 9pt;
-    font-weight: 600;
-}}
-QLabel#BrandSub {{
-    color: {DIM};
-    font-size: 8pt;
-}}
-QWidget#MessagePage {{
-    background: qradialgradient(cx:0.5, cy:0.40, radius:0.85,
-        fx:0.5, fy:0.40, stop:0 #17130E, stop:0.45 #0C0D0F, stop:1 {BG});
-}}
-QLabel#Hint {{
-    color: {MUTED};
-    font-size: 9.5pt;
-}}
-QLabel#ErrorTitle {{
-    color: {TEXT};
-    font-size: 14pt;
-    font-weight: 600;
-}}
-QLabel#PillName {{
-    color: {TEXT};
-    font-size: 9pt;
-    font-weight: 600;
-}}
-QLabel#PillMeta {{
-    color: {MUTED};
-    font-size: 8.5pt;
-}}
-QLabel#Zoom {{
-    color: {MUTED};
-    font-size: 8.5pt;
-}}
-QToolButton {{
-    background: transparent;
-    border: none;
-    border-radius: 9px;
-    padding: 6px;
-}}
-QToolButton:hover {{
-    background: #14FFFFFF;
-}}
-QToolButton:pressed {{
-    background: #22FFFFFF;
-}}
-QToolButton:checked {{
-    background: {ACCENT_SOFT};
-}}
-QFrame#Rail {{
-    background: #0E1013;
-    border: 1px solid {BORDER};
-    border-radius: 16px;
-}}
-QFrame#Pill, QFrame#ZoomChip {{
-    background: rgba(10, 11, 13, 0.62);
-    border: 1px solid #1EFFFFFF;
-    border-radius: 12px;
-}}
-QListWidget {{
-    background: transparent;
-    border: none;
-    outline: 0;
-    padding: 0px;
-}}
-QListWidget::item {{
-    color: {MUTED};
-    border: 1px solid transparent;
-    border-radius: 10px;
-    padding: 6px;
-    margin: 2px 0;
-}}
-QListWidget::item:hover {{
-    background: #10FFFFFF;
-    color: {TEXT};
-}}
-QListWidget::item:selected {{
-    background: #1AF0C47C;
-    border: 1px solid #59E6B567;
-    color: {TEXT};
-}}
-QScrollBar:vertical {{
-    background: transparent;
-    width: 8px;
-    margin: 4px 2px;
-}}
-QScrollBar::handle:vertical {{
-    background: #26FFFFFF;
-    border-radius: 3px;
-    min-height: 28px;
-}}
-QScrollBar::handle:vertical:hover {{
-    background: #38FFFFFF;
-}}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-    background: none;
-    height: 0;
-}}
-QMenu {{
-    background: #14161A;
-    border: 1px solid {BORDER};
-    border-radius: 10px;
-    padding: 6px;
-    color: {TEXT};
-}}
-QMenu::item {{
-    padding: 7px 28px 7px 14px;
-    border-radius: 6px;
-}}
-QMenu::item:selected {{
-    background: {ACCENT_SOFT};
-    color: {TEXT};
-}}
-QMenu::separator {{
-    height: 1px;
-    background: {BORDER};
-    margin: 5px 8px;
-}}
-QToolTip {{
-    background: #14161A;
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    padding: 5px 9px;
-}}
-QPushButton {{
-    background: #16FFFFFF;
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 10px;
-    padding: 9px 18px;
-}}
-QPushButton:hover {{
-    background: #22FFFFFF;
-}}
-QPushButton#Primary {{
-    background: {ACCENT};
-    color: {ACCENT_TEXT};
-    border: none;
-    font-weight: 600;
-}}
-QPushButton#Primary:hover {{
-    background: {ACCENT_HOVER};
-}}
-QMessageBox {{
-    background: {SURFACE};
-}}
-"""
-
-
-def apply_theme(app) -> None:
-    app.setStyle("Fusion")
-    app.setStyleSheet(QSS)
-
-    pal = QPalette()
-    pal.setColor(QPalette.ColorRole.Window, QColor(SURFACE))
-    pal.setColor(QPalette.ColorRole.WindowText, QColor(TEXT))
-    pal.setColor(QPalette.ColorRole.Base, QColor(SURFACE_HI))
-    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(SURFACE))
-    pal.setColor(QPalette.ColorRole.Text, QColor(TEXT))
-    pal.setColor(QPalette.ColorRole.Button, QColor(SURFACE_HI))
-    pal.setColor(QPalette.ColorRole.ButtonText, QColor(TEXT))
-    pal.setColor(QPalette.ColorRole.Highlight, QColor(ACCENT))
-    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(ACCENT_TEXT))
-    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor("#14161A"))
-    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(TEXT))
-    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(MUTED))
-    app.setPalette(pal)
-
-    font = QFont()
-    font.setFamilies(["Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI"])
-    font.setPointSizeF(10)
+def apply_theme(app, dark=None):
+    global BG, CANVAS, SURFACE, SURFACE_HI, BORDER, TEXT, MUTED, DIM, ACCENT, ACCENT_HOVER, ACCENT_TEXT, ACCENT_SOFT
+    if dark is None:
+        dark = app.styleHints().colorScheme() == Qt.ColorScheme.Dark
+    BG, SURFACE, SURFACE_HI, BORDER, TEXT, MUTED, ACCENT, ACCENT_HOVER, ACCENT_TEXT = (
+        ('#171819', '#212325', '#303A35', '#35383A', '#EFEFED', '#A4AAA7', '#B5D7C2', '#CCE7D6', '#193727') if dark else
+        ('#F6F6F4', '#FFFFFF', '#E9EDEA', '#E5E7E5', '#242629', '#737675', '#3B6552', '#477B63', '#FFFFFF'))
+    CANVAS, DIM, ACCENT_SOFT = BG, MUTED, SURFACE_HI
+    app.setStyle('Fusion')
+    palette = QPalette()
+    for role, value in ((QPalette.ColorRole.Window, BG), (QPalette.ColorRole.WindowText, TEXT), (QPalette.ColorRole.Base, SURFACE),
+                        (QPalette.ColorRole.Text, TEXT), (QPalette.ColorRole.Button, SURFACE), (QPalette.ColorRole.ButtonText, TEXT),
+                        (QPalette.ColorRole.Highlight, ACCENT), (QPalette.ColorRole.HighlightedText, ACCENT_TEXT),
+                        (QPalette.ColorRole.ToolTipBase, SURFACE), (QPalette.ColorRole.ToolTipText, TEXT), (QPalette.ColorRole.PlaceholderText, MUTED)):
+        palette.setColor(role, QColor(value))
+    app.setPalette(palette)
+    font = QFont(); font.setFamilies(['Segoe UI Variable Text', 'Microsoft YaHei UI', 'Inter', 'Segoe UI']); font.setPointSizeF(10)
     app.setFont(font)
+    app.setStyleSheet(f'''
+    * {{ color: {TEXT}; font-size: 10pt; }}
+    QMainWindow, QWidget#Root, QWidget#CanvasArea, QWidget#MessagePage {{ background: {BG}; }}
+    QWidget#TopBar, QFrame#Editor, QWidget#Timeline {{ background: {SURFACE}; }}
+    QWidget#TopBar {{ border-bottom: 1px solid {BORDER}; }}
+    QLabel#Brand {{ font-size: 17pt; font-weight: 500; }}
+    QLabel#EditorTitle, QLabel#ErrorTitle {{ font-size: 14pt; font-weight: 500; }}
+    QLabel#Hint, QLabel#PillMeta, QLabel#Zoom, QLabel#BrandSub {{ color: {MUTED}; font-size: 9pt; }}
+    QPushButton, QToolButton {{ background: transparent; border: none; border-radius: 10px; padding: 9px 13px; }}
+    QPushButton:hover, QToolButton:hover, QPushButton:checked, QToolButton:checked {{ background: {SURFACE_HI}; }}
+    QPushButton:disabled, QToolButton:disabled {{ color: {MUTED}; }}
+    QPushButton#Primary {{ background: {ACCENT}; color: {ACCENT_TEXT}; font-weight: 500; }}
+    QPushButton#Primary:hover {{ background: {ACCENT_HOVER}; }}
+    QPushButton:focus, QToolButton:focus {{ border: 1px solid {ACCENT}; }}
+    QFrame#Rail {{ background: {SURFACE}; border-radius: 12px; }}
+    QFrame#Editor {{ border-left: 1px solid {BORDER}; }}
+    QListWidget {{ background: transparent; border: none; }}
+    QListWidget::item {{ padding: 6px; margin: 2px; border-radius: 8px; }}
+    QListWidget::item:selected {{ background: {SURFACE_HI}; }}
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 8px; padding: 8px; min-height: 18px; }}
+    QSlider::groove:horizontal {{ height: 4px; background: {BORDER}; border-radius: 2px; }}
+    QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 2px; }}
+    QSlider::handle:horizontal {{ background: {ACCENT}; width: 14px; margin: -5px 0; border-radius: 7px; }}
+    QMenu, QToolTip {{ background: {SURFACE}; border: 1px solid {BORDER}; padding: 6px; }}
+    QMenu::item {{ padding: 8px 24px; border-radius: 6px; }}
+    QMenu::item:selected {{ background: {SURFACE_HI}; }}
+    QScrollBar:vertical {{ background: transparent; width: 8px; }}
+    QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    ''')
 
-
-def colorref(hex_color: str) -> int:
-    """#RRGGBB -> Windows COLORREF (0x00BBGGRR)."""
-    value = hex_color.lstrip("#")
+def colorref(hex_color):
+    value = hex_color.lstrip('#')
     r, g, b = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
     return (b << 16) | (g << 8) | r

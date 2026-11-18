@@ -16,7 +16,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from lumenview import theme
-from lumenview.window import MainWindow
+from lumenview.modern import MainWindow
 
 
 def main() -> int:

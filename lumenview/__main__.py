@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from . import icons, theme
-from .window import MainWindow
+from .modern import MainWindow
 
 
 def main() -> int:

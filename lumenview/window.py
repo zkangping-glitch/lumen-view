@@ -53,6 +53,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Lumen View")
         self.setMinimumSize(960, 640)
+        self.setAcceptDrops(True)
 
         self._settings = QSettings("Lumen", "LumenView")
         self._pool = QThreadPool(self)
@@ -363,7 +364,7 @@ class MainWindow(QMainWindow):
                     hwnd, value_id, ctypes.byref(data), ctypes.sizeof(data)
                 )
 
-            attribute(20, 1)  # DWMWA_USE_IMMERSIVE_DARK_MODE
+            attribute(20, int(theme.BG == "#171819"))  # DWMWA_USE_IMMERSIVE_DARK_MODE
             attribute(35, theme.colorref(theme.BG))  # caption colour
             attribute(36, theme.colorref(theme.TEXT))  # caption text
             attribute(34, theme.colorref(theme.BG))  # border colour
@@ -436,7 +437,7 @@ class MainWindow(QMainWindow):
                 self._set_folder(files, files[0])
             return
         if not os.path.isfile(path):
-            self.show_message("文件不存在", path)
+            self.show_message("文件不存在", path, [])
             return
 
         self._settings.setValue("paths/last", os.path.dirname(path))
@@ -469,6 +470,7 @@ class MainWindow(QMainWindow):
     def _load(self, path: str) -> None:
         self._current = path
         self._token += 1
+        self._pool.clear()
         token = self._token
         self._update_title()
         self._update_count()
@@ -553,13 +555,13 @@ class MainWindow(QMainWindow):
         if not self._loaded:
             return
         self.canvas.rotate_by(degrees)
-        self._view_states[self._current] = self.canvas.view_state()
+        self._view_states[self._loaded.path] = self.canvas.view_state()
 
     def flip(self) -> None:
         if not self._loaded:
             return
         self.canvas.flip()
-        self._view_states[self._current] = self.canvas.view_state()
+        self._view_states[self._loaded.path] = self.canvas.view_state()
 
     def toggle_slideshow(self) -> None:
         if self._slideshow.isActive():

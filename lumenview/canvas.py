@@ -11,6 +11,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 from .decoders import Loaded
+from . import theme
 
 MIN_SCALE = 0.02
 MAX_SCALE = 32.0
@@ -211,15 +212,7 @@ class ImageCanvas(QGraphicsView):
     # ------------------------------------------------------------------ #
     def drawBackground(self, painter, rect) -> None:
         painter.save()
-        painter.fillRect(rect, QColor("#060708"))
-        scale = max(self.current_scale(), 0.0001)
-        center = self.mapToScene(self.viewport().rect().center())
-        radius = max(self.viewport().width(), self.viewport().height()) / scale * 0.75
-        glow = QRadialGradient(center, radius)
-        glow.setColorAt(0.0, QColor("#121519"))
-        glow.setColorAt(0.55, QColor("#0A0B0D"))
-        glow.setColorAt(1.0, QColor("#060708"))
-        painter.fillRect(rect, QBrush(glow))
+        painter.fillRect(rect, QColor(theme.CANVAS))
         painter.restore()
 
     def wheelEvent(self, event) -> None:

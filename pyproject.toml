@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lumenview"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lumen View - a quiet, format-hungry image viewer for Windows."
 requires-python = ">=3.12"
 dependencies = [
+    "Pillow>=11.1",
     "PySide6-Essentials>=6.10",
     "pillow-heif>=1.0",
     "pillow-jxl-plugin>=1.3",
