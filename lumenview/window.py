@@ -11,13 +11,38 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox,
-    QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import decoders, icons, theme
 from .canvas import ImageCanvas
 from .decoders import DecodeError, Loaded
 from .filmstrip import Filmstrip
+
+
+class _FilenameLabel(QLabel):
+    """Keep the full name accessible without letting it widen the window."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+
+    def setText(self, text):
+        self._full_text = text
+        self.setToolTip(text)
+        self.setAccessibleName(text)
+        self._refresh()
+
+    def _refresh(self):
+        super().setText(self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideMiddle, self.contentsRect().width()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh()
 
 
 class _DecodeSignals(QObject):
@@ -213,13 +238,13 @@ class MainWindow(QMainWindow):
     def _build_footer(self, parent: QWidget) -> QWidget:
         footer = QWidget(parent)
         footer.setObjectName("Footer")
-        footer.setFixedHeight(26)
+        footer.setMinimumHeight(52)
 
-        layout = QHBoxLayout(footer)
-        layout.setContentsMargins(240, 0, 6, 2)
-        layout.setSpacing(8)
+        layout = QVBoxLayout(footer)
+        layout.setContentsMargins(240, 6, 6, 6)
+        layout.setSpacing(4)
 
-        self.name_label = QLabel("", footer)
+        self.name_label = _FilenameLabel(footer)
         self.name_label.setObjectName("PillName")
         self.info_label = QLabel("", footer)
         self.info_label.setObjectName("PillMeta")
@@ -228,18 +253,18 @@ class MainWindow(QMainWindow):
         self.zoom_label = QLabel("", footer)
         self.zoom_label.setObjectName("Zoom")
 
-        self._dot_a = QLabel("·", footer)
         self._dot_b = QLabel("·", footer)
-        for dot in (self._dot_a, self._dot_b):
-            dot.setObjectName("PillMeta")
+        self._dot_b.setObjectName("PillMeta")
 
         layout.addWidget(self.name_label)
-        layout.addWidget(self._dot_a)
-        layout.addWidget(self.info_label)
-        layout.addWidget(self._dot_b)
-        layout.addWidget(self.count_label)
-        layout.addStretch(1)
-        layout.addWidget(self.zoom_label)
+        metadata = QHBoxLayout()
+        metadata.setSpacing(8)
+        metadata.addWidget(self.info_label)
+        metadata.addWidget(self._dot_b)
+        metadata.addWidget(self.count_label)
+        metadata.addStretch(1)
+        metadata.addWidget(self.zoom_label)
+        layout.addLayout(metadata)
         footer.hide()
         return footer
 
@@ -385,7 +410,7 @@ class MainWindow(QMainWindow):
 
     def _sync_footer_margin(self) -> None:
         left = 240 if self._filmstrip.isVisible() else 18
-        self.footer.layout().setContentsMargins(left, 0, 6, 2)
+        self.footer.layout().setContentsMargins(left, 6, 6, 6)
 
     # ------------------------------------------------------------------ #
     # settings
