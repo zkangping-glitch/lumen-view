@@ -43,6 +43,16 @@ def apply_theme(app, dark=None):
     QListWidget::item {{ padding: 6px; margin: 2px; border-radius: 8px; }}
     QListWidget::item:selected {{ background: {SURFACE_HI}; }}
     QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 8px; padding: 8px; min-height: 18px; }}
+    QFrame#SegmentedControl {{ background: {SURFACE_HI}; border: none; border-radius: 11px; }}
+    QPushButton#SegmentedButton {{ color: {MUTED}; border: none; border-radius: 8px; padding: 6px 10px; min-height: 18px; }}
+    QPushButton#SegmentedButton:hover {{ background: {BG}; color: {TEXT}; }}
+    QPushButton#SegmentedButton:checked {{ background: {ACCENT}; color: {ACCENT_TEXT}; }}
+    QFrame#TimeField {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 11px; }}
+    QLabel#TimeFieldLabel {{ color: {MUTED}; font-size: 8.5pt; }}
+    QFrame#TimeField {{ background: {SURFACE_HI}; border: none; border-radius: 11px; }}
+    QLabel#TimeFieldLabel, QLabel#TimeFieldUnit {{ color: {MUTED}; font-size: 9pt; }}
+    QLineEdit#TimeInput {{ background: transparent; border: none; border-radius: 0; padding: 0; min-height: 24px; font-size: 11pt; font-weight: 500; }}
+    QLineEdit#TimeInput:focus {{ color: {ACCENT}; }}
     QSlider::groove:horizontal {{ height: 4px; background: {BORDER}; border-radius: 2px; }}
     QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 2px; }}
     QSlider::handle:horizontal {{ background: {ACCENT}; width: 14px; margin: -5px 0; border-radius: 7px; }}

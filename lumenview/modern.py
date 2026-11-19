@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QApplication, QButtonGroup, QComboBox, QDialog, QFileDialog, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QSlider,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -16,6 +16,101 @@ from PySide6.QtWidgets import (
 from . import editing, icons, theme
 from .decoders import Frame, Loaded
 from .window import MainWindow as ViewerWindow
+
+
+class SpeedSelector(QFrame):
+    """Compact segmented speed control without native combo-box chrome."""
+
+    currentIndexChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SegmentedControl")
+        self.setAccessibleName("GIF 播放速度")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(2)
+        self._values = (.5, 1, 1.5, 2)
+        self._buttons = []
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        for index, value in enumerate(self._values):
+            item = QPushButton(f"{value:g}×", self)
+            item.setObjectName("SegmentedButton")
+            item.setCheckable(True)
+            item.setAccessibleName(f"{value:g} 倍速")
+            self._group.addButton(item, index)
+            layout.addWidget(item)
+            self._buttons.append(item)
+        self._group.idClicked.connect(self._select)
+        self._index = 1
+        self._buttons[self._index].setChecked(True)
+
+    def _select(self, index):
+        if index != self._index:
+            self._index = index
+            self.currentIndexChanged.emit(index)
+
+    def currentData(self):
+        return self._values[self._index]
+
+    def findData(self, value):
+        try:
+            return self._values.index(value)
+        except ValueError:
+            return -1
+
+    def setCurrentIndex(self, index):
+        if not 0 <= index < len(self._buttons):
+            return
+        changed = index != self._index
+        self._index = index
+        self._buttons[index].setChecked(True)
+        if changed:
+            self.currentIndexChanged.emit(index)
+
+
+class TimeInput(QLineEdit):
+    """Keyboard-first numeric field with no native stepper chrome."""
+
+    valueChanged = Signal(float)
+
+    def __init__(self, accessible_name, parent=None):
+        super().__init__(parent)
+        self.setObjectName("TimeInput")
+        self.setAccessibleName(accessible_name)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._minimum = 0.0
+        self._maximum = 0.0
+        self._value = 0.0
+        self.setText("0.00")
+        self.editingFinished.connect(self._commit)
+
+    def setRange(self, minimum, maximum):
+        self._minimum, self._maximum = float(minimum), float(maximum)
+        self.setValue(self._value)
+
+    def setValue(self, value):
+        value = max(self._minimum, min(self._maximum, float(value)))
+        changed = value != self._value
+        self._value = value
+        self.setText(f"{value:.2f}")
+        if changed:
+            self.valueChanged.emit(value)
+
+    def value(self):
+        return self._value
+
+    def _commit(self):
+        try:
+            value = float(self.text().strip().replace(",", "."))
+        except ValueError:
+            value = self._value
+        self.setValue(value)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)
 
 
 class WorkerSignals(QObject):
@@ -284,10 +379,7 @@ class MainWindow(ViewerWindow):
         row.addWidget(self.time_label)
         row.addStretch()
         row.addWidget(QLabel("速度"))
-        self.speed = QComboBox()
-        for v in (.5, 1, 1.5, 2):
-            self.speed.addItem(f"{v:g}×", v)
-        self.speed.setCurrentIndex(1)
+        self.speed = SpeedSelector()
         self.speed.currentIndexChanged.connect(lambda _: self.change_edit(speed=self.speed.currentData()))
         row.addWidget(self.speed)
         row.addWidget(QLabel("调整应用于全部帧"))
@@ -299,14 +391,26 @@ class MainWindow(ViewerWindow):
         self.scrub.valueChanged.connect(self.seek_frame)
         layout.addWidget(self.scrub)
         trim = QHBoxLayout()
-        self.trim_start, self.trim_end = QDoubleSpinBox(), QDoubleSpinBox()
+        trim.setSpacing(12)
+        self.trim_start = TimeInput("片段起点")
+        self.trim_end = TimeInput("片段终点")
         for name, spin in (("起点", self.trim_start), ("终点", self.trim_end)):
-            trim.addWidget(QLabel(name))
-            spin.setDecimals(2)
-            spin.setSingleStep(.1)
-            spin.setSuffix(" 秒")
-            spin.setAccessibleName("片段" + name)
-            trim.addWidget(spin)
+            field = QFrame()
+            field.setObjectName("TimeField")
+            field_layout = QVBoxLayout(field)
+            field_layout.setContentsMargins(12, 8, 12, 8)
+            field_layout.setSpacing(2)
+            label = QLabel(name)
+            label.setObjectName("TimeFieldLabel")
+            field_layout.addWidget(label)
+            value_row = QHBoxLayout()
+            value_row.setSpacing(4)
+            value_row.addWidget(spin, 1)
+            unit = QLabel("秒")
+            unit.setObjectName("TimeFieldUnit")
+            value_row.addWidget(unit)
+            field_layout.addLayout(value_row)
+            trim.addWidget(field, 1)
         self.trim_start.valueChanged.connect(lambda v: self._trim_changed(True, v))
         self.trim_end.valueChanged.connect(lambda v: self._trim_changed(False, v))
         layout.addLayout(trim)

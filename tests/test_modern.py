@@ -55,6 +55,8 @@ def test_edit_undo_gif_trim_export_and_cancel(app, window, tmp_path, monkeypatch
     assert w.history.state.start_ms == 120
     assert w.history.state.end_ms == 480
     assert w.history.state.speed == 2
+    assert w.trim_start.text() == "0.12"
+    assert w.speed._buttons[3].isChecked()
     w.toggle_edit_playback()
     first = w._frame
     wait(app, lambda: w._frame != first)
