@@ -144,6 +144,7 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.loaded, self.state, self.index = loaded, state, index
         self.setWindowTitle("保存副本")
+        self.setObjectName("ExportDialog")
         self.setMinimumWidth(380)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -154,6 +155,8 @@ class ExportDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(16)
         self.name = QLineEdit(Path(loaded.path).stem + "-已编辑")
+        self.name.setObjectName("ExportName")
+        self.name.setAccessibleName("输出文件名")
         form.addRow("文件名", self.name)
         self.format = QComboBox()
         self.format.addItems(["GIF", "动画 WebP", "JPEG", "PNG", "WebP"] if loaded.animated else ["JPEG", "PNG", "WebP"])
@@ -259,15 +262,15 @@ class MainWindow(ViewerWindow):
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.file_label, 1)
         layout.addStretch()
-        self.previous_button = button("❮", self.previous, self.stack)
-        self.next_button = button("❯", self.next, self.stack)
+        self.previous_button = button("❮", self.previous, self.canvas.viewport())
+        self.next_button = button("❯", self.next, self.canvas.viewport())
         for nav, name in ((self.previous_button, "上一张"), (self.next_button, "下一张")):
             nav.setObjectName("CanvasNav")
             nav.setAccessibleName(name)
             nav.setToolTip(name)
             nav.setFixedSize(52, 72)
             nav.raise_()
-        self.stack.installEventFilter(self)
+        self.canvas.viewport().installEventFilter(self)
         self._position_navigation()
         self.edit_button = button("编辑", self.enter_editor, primary=True)
         self.save_button = button("另存为", self.save_copy)
@@ -293,16 +296,17 @@ class MainWindow(ViewerWindow):
             self.addAction(action)
 
     def eventFilter(self, obj, event):
-        if obj is self.stack and event.type() == QEvent.Type.Resize:
+        if obj is self.canvas.viewport() and event.type() == QEvent.Type.Resize:
             self._position_navigation()
         return super().eventFilter(obj, event)
 
     def _position_navigation(self):
         if not hasattr(self, "previous_button"):
             return
-        y = max(0, (self.stack.height() - 72) // 2)
+        viewport = self.canvas.viewport()
+        y = max(0, (viewport.height() - 72) // 2)
         self.previous_button.move(12, y)
-        self.next_button.move(max(12, self.stack.width() - 64), y)
+        self.next_button.move(max(12, viewport.width() - 64), y)
 
     def _build_editor(self):
         self.editor = QScrollArea()
@@ -868,17 +872,19 @@ class MainWindow(ViewerWindow):
             return
         fmt = dialog.format.currentText()
         ext = {"JPEG": "jpg", "PNG": "png", "WebP": "webp", "GIF": "gif", "动画 WebP": "webp"}[fmt]
-        picker = QFileDialog(self, "选择保存位置", str(Path(loaded.path).parent / f"{name}.{ext}"), f"{fmt} (*.{ext})")
-        picker.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        picker.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
-        picker.selectFile(f"{name}.{ext}")
-        destination = picker.selectedFiles()[0] if picker.exec() == QDialog.DialogCode.Accepted else ""
-        if not destination:
+        if Path(name).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            name = Path(name).stem
+        if not name:
+            QMessageBox.warning(self, "文件名无效", "请输入文件名。")
             return
-        if Path(destination).suffix.lower() != f".{ext}":
-            destination += f".{ext}"
-            if Path(destination).exists() and QMessageBox.question(self, "替换副本？", f"{Path(destination).name} 已存在，是否替换？") != QMessageBox.StandardButton.Yes:
-                return
+        start_dir = getattr(self, "_last_save_dir", None) or str(Path(loaded.path).parent)
+        folder = QFileDialog.getExistingDirectory(self, "选择保存文件夹", start_dir)
+        if not folder:
+            return
+        destination = str(Path(folder) / f"{name}.{ext}")
+        if Path(destination).exists() and QMessageBox.question(
+                self, "替换副本？", f"{Path(destination).name} 已存在，是否替换？") != QMessageBox.StandardButton.Yes:
+            return
         index = 0 if dialog.frame.currentIndex() == 1 else dialog.index
         quality = dialog.quality.value()
         background = "white" if dialog.background.currentIndex() == 0 else "black"
@@ -897,6 +903,7 @@ class MainWindow(ViewerWindow):
         if error:
             QMessageBox.warning(self, "保存失败", error)
         else:
+            self._last_save_dir = str(Path(path).parent)
             QMessageBox.information(self, "副本已保存", f"已保存到：\n{path}\n\n原图保留。")
 
     def toggle_fullscreen(self):

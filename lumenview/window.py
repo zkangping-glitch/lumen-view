@@ -250,8 +250,12 @@ class MainWindow(QMainWindow):
         self.info_label.setObjectName("PillMeta")
         self.count_label = QLabel("", footer)
         self.count_label.setObjectName("PillMeta")
-        self.zoom_label = QLabel("", footer)
+        self.zoom_label = QPushButton("", footer)
         self.zoom_label.setObjectName("Zoom")
+        self.zoom_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.zoom_label.setToolTip("点击恢复到 100% 实际大小")
+        self.zoom_label.setAccessibleName("恢复到 100% 实际大小")
+        self.zoom_label.clicked.connect(self.actual_size)
 
         self._dot_b = QLabel("·", footer)
         self._dot_b.setObjectName("PillMeta")

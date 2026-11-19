@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QDialog
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from lumenview import decoders, theme
 from lumenview.modern import MainWindow, ExportDialog
@@ -61,10 +62,9 @@ def test_edit_undo_gif_trim_export_and_cancel(app, window, tmp_path, monkeypatch
     first = w._frame
     wait(app, lambda: w._frame != first)
     w._stop_edit_playback()
-    destination = tmp_path / 'edited.gif'
+    destination = tmp_path / 'sample-已编辑.gif'
     monkeypatch.setattr(ExportDialog, 'exec', lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(QFileDialog, 'exec', lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(QFileDialog, 'selectedFiles', lambda self: [str(destination)])
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *a, **kw: str(tmp_path))
     messages = []
     monkeypatch.setattr(QMessageBox, 'information', lambda *a, **kw: messages.append(a))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **kw: pytest.fail(str(a)))
@@ -134,6 +134,46 @@ def test_frame_controls_at_150_percent(app, window, tmp_path, monkeypatch):
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **k: (str(single), ''))
     w.export_frame()
     assert single.exists()
+
+def test_canvas_navigation_zoom_and_save_location(app, window, tmp_path, monkeypatch):
+    w = window
+    load(app, w, 'sample.gif')
+    assert w.previous_button.parentWidget() is w.canvas.viewport()
+    assert w.next_button.parentWidget() is w.canvas.viewport()
+    assert w.next_button.isVisible()
+    before = w._current
+    QTest.mouseClick(w.next_button, Qt.MouseButton.LeftButton)
+    wait(app, lambda: w._current != before and w._loaded.path == w._current)
+    w.canvas.zoom_in()
+    assert w.canvas.current_scale() != 1
+    QTest.mouseClick(w.zoom_label, Qt.MouseButton.LeftButton)
+    assert w.canvas.current_scale() == pytest.approx(1)
+    assert w.zoom_label.text() == '100%'
+    folder = tmp_path / 'saved'
+    folder.mkdir()
+    monkeypatch.setattr(ExportDialog, 'exec', lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *a, **kw: str(folder))
+    monkeypatch.setattr(QMessageBox, 'information', lambda *a, **kw: None)
+    w.save_copy()
+    wait(app, lambda: not w._exporting)
+    assert (folder / (Path(w._current).stem + '-已编辑.jpg')).exists()
+    assert w._last_save_dir == str(folder)
+
+@pytest.mark.parametrize('label,suffix', [('PNG', 'png'), ('WebP', 'webp')])
+def test_save_name_extension_follows_format(app, window, tmp_path, monkeypatch, label, suffix):
+    w = window
+    load(app, w, 'sample.jpg')
+    def configure(dialog):
+        dialog.name.setText('renamed.jpg')
+        dialog.format.setCurrentText(label)
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(ExportDialog, 'exec', configure)
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *a, **kw: str(tmp_path))
+    monkeypatch.setattr(QMessageBox, 'information', lambda *a, **kw: None)
+    w.save_copy()
+    wait(app, lambda: not w._exporting)
+    assert (tmp_path / f'renamed.{suffix}').exists()
+    assert not (tmp_path / f'renamed.jpg.{suffix}').exists()
 
 @pytest.mark.parametrize('source,fmt,suffix', [('sample.gif', 'GIF', 'gif'),
                                                ('sample.webp', '动画 WebP', 'webp')])

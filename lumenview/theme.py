@@ -26,6 +26,7 @@ def apply_theme(app, dark=None):
     app.setStyleSheet(f'''
     * {{ color: {TEXT}; font-size: 10pt; }}
     QMainWindow, QWidget#Root, QWidget#CanvasArea, QWidget#MessagePage {{ background: {BG}; }}
+    QDialog#ExportDialog {{ background: {SURFACE}; }}
     QWidget#TopBar, QScrollArea#Editor, QFrame#EditorContent, QWidget#Timeline {{ background: {SURFACE}; }}
     QWidget#TopBar {{ border-bottom: 1px solid {BORDER}; }}
     QLabel#Brand {{ font-size: 17pt; font-weight: 500; }}
@@ -49,6 +50,13 @@ def apply_theme(app, dark=None):
     QComboBox:hover, QLineEdit:hover {{ border-color: {ACCENT}; }}
     QComboBox:focus, QLineEdit:focus {{ border: 2px solid {ACCENT}; background: {BG}; }}
     QComboBox:disabled, QLineEdit:disabled {{ color: {MUTED}; background: {SURFACE_HI}; border-color: {BORDER}; }}
+    QLineEdit#ExportName {{ background: {SURFACE_HI}; color: {TEXT}; border: 1px solid {MUTED}; selection-background-color: {ACCENT}; selection-color: {ACCENT_TEXT}; }}
+    QLineEdit#ExportName:hover {{ border-color: {ACCENT}; }}
+    QLineEdit#ExportName:focus {{ background: {BG}; border: 2px solid {ACCENT}; }}
+    QLineEdit#ExportName:disabled {{ background: {SURFACE_HI}; color: {MUTED}; border-color: {BORDER}; }}
+    QPushButton#Zoom {{ color: {MUTED}; background: transparent; border: none; min-width: 58px; padding: 5px 9px; }}
+    QPushButton#Zoom:hover {{ color: {ACCENT}; background: {SURFACE_HI}; }}
+    QPushButton#Zoom:pressed {{ color: {ACCENT_TEXT}; background: {ACCENT}; }}
     QComboBox::drop-down {{ border: none; width: 32px; }}
     QComboBox::down-arrow {{ image: none; border: none; }}
     QComboBox QAbstractItemView {{ background: {SURFACE}; color: {TEXT}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; selection-color: {ACCENT_TEXT}; padding: 5px; outline: none; }}
