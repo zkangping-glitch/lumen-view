@@ -22,6 +22,7 @@ class EditState:
     rotation: int = 0
     flipped: bool = False
     ratio: str = "original"
+    crop_box: tuple[float, float, float, float] | None = None
     start_ms: int = 0
     end_ms: int | None = None
     speed: float = 1.0
@@ -41,7 +42,15 @@ def transform(image: Image.Image, state: EditState) -> Image.Image:
         image = ImageOps.mirror(image)
     ratios = {"square": 1.0, "wide": 16 / 9, "portrait": 4 / 5}
     ratio = ratios.get(state.ratio)
-    if ratio:
+    if state.crop_box is not None:
+        w, h = image.size
+        x0, y0, x1, y1 = state.crop_box
+        left = max(0, min(w - 1, round(x0 * w)))
+        top = max(0, min(h - 1, round(y0 * h)))
+        right = max(left + 1, min(w, round(x1 * w)))
+        bottom = max(top + 1, min(h, round(y1 * h)))
+        image = image.crop((left, top, right, bottom))
+    elif ratio:
         w, h = image.size
         cw, ch = min(w, max(1, round(h * ratio))), min(h, max(1, round(w / ratio)))
         x, y = (w - cw) // 2, (h - ch) // 2

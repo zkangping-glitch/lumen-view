@@ -31,6 +31,11 @@ jobs:
         run: python -m pytest -q tests/test_modern.py
         env:
           QT_SCALE_FACTOR: '1.5'
+      - name: Check editor at 200% scale
+        if: runner.os == 'Windows'
+        run: python -m pytest -q tests/test_modern.py
+        env:
+          QT_SCALE_FACTOR: '2'
 
   build-installer:
     name: Build Windows installer

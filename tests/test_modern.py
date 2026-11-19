@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QDialog
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from lumenview import decoders, theme
 from lumenview.modern import MainWindow, ExportDialog
@@ -43,7 +43,9 @@ def test_edit_undo_gif_trim_export_and_cancel(app, window, tmp_path, monkeypatch
     wait(app, lambda: w.canvas._loaded is not w._loaded)
     assert w.timeline.isVisible() and w.editor.isVisible()
     w.sliders['brightness'].setValue(20)
-    w.ratio.setCurrentIndex(1)
+    w._select_tool(1)
+    w._set_crop_ratio(2)
+    w.finish_crop()
     w.rotate(90)
     wait(app, lambda: w.canvas._loaded.width == w.canvas._loaded.height)
     assert w.history.state.brightness == 20
@@ -138,8 +140,8 @@ def test_frame_controls_at_150_percent(app, window, tmp_path, monkeypatch):
 def test_canvas_navigation_zoom_and_save_location(app, window, tmp_path, monkeypatch):
     w = window
     load(app, w, 'sample.gif')
-    assert w.previous_button.parentWidget() is w.canvas.viewport()
-    assert w.next_button.parentWidget() is w.canvas.viewport()
+    assert w.previous_button.parentWidget() is w.canvas_area
+    assert w.next_button.parentWidget() is w.canvas_area
     assert w.next_button.isVisible()
     before = w._current
     QTest.mouseClick(w.next_button, Qt.MouseButton.LeftButton)
@@ -174,6 +176,74 @@ def test_save_name_extension_follows_format(app, window, tmp_path, monkeypatch, 
     wait(app, lambda: not w._exporting)
     assert (tmp_path / f'renamed.{suffix}').exists()
     assert not (tmp_path / f'renamed.jpg.{suffix}').exists()
+
+def test_navigation_stays_at_view_edges_during_zoom(app, window):
+    w = window
+    load(app, w, 'sample.svg')
+    def check():
+        app.processEvents()
+        rect = w.canvas.viewport().rect()
+        left = w.canvas.viewport().mapTo(w.canvas_area, rect.topLeft()).x()
+        right = w.canvas.viewport().mapTo(w.canvas_area, rect.topRight()).x()
+        assert abs(w.previous_button.x() - (left + 12)) <= 2
+        assert abs(w.next_button.geometry().right() - (right - 12)) <= 2
+        assert w.previous_button.isVisible() and w.next_button.isVisible()
+    check()
+    w.actual_size(); check()
+    w.canvas.zoom_by(2); check()
+    w.fit(); check()
+    w.resize(850, 700); check()
+    w.showMaximized(); check()
+
+def test_crop_overlay_screen_mapping_and_frame_labels(app, window):
+    w = window
+    load(app, w, 'sample.gif')
+    w.enter_editor()
+    wait(app, lambda: w.canvas._loaded is not w._loaded)
+    w._select_tool(1)
+    wait(app, lambda: w.crop_overlay.isVisible() and w.crop_overlay.reference_size is not None)
+    overlay = w.crop_overlay
+    overlay.set_box((.2, .2, .7, .7))
+    before = overlay.box
+    w.canvas.actual_size()
+    app.processEvents()
+    assert overlay.box == before
+    w.canvas.zoom_by(2)
+    app.processEvents()
+    assert overlay.box == before
+    assert overlay._screen_rect().width() > 0
+    assert [label.text() for label in w._frame_buttons] == [''] * 6
+    assert [label.text() for label in w.frame_strip.findChildren(type(w._frame_labels[0])) if label.objectName() == 'FrameNumber'] == [str(n) for n in range(1, 7)]
+
+def test_crop_drag_ratio_apply_undo_and_many_frame_labels(app, window):
+    w = window
+    load(app, w, 'sample.gif')
+    w.enter_editor()
+    wait(app, lambda: w.canvas._loaded is not w._loaded)
+    w._select_tool(1)
+    wait(app, lambda: w.crop_overlay.isVisible() and w.crop_overlay.reference_size is not None)
+    overlay = w.crop_overlay
+    overlay.set_box((.2, .2, .8, .8))
+    rect = overlay._screen_rect()
+    start = rect.center().toPoint()
+    QTest.mousePress(overlay, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(overlay, start + QPoint(20, 8))
+    QTest.mouseRelease(overlay, Qt.MouseButton.LeftButton, pos=start + QPoint(20, 8))
+    assert overlay.box[0] > .2
+    w._set_crop_ratio(2)
+    x0, y0, x1, y1 = overlay.box
+    assert ((x1 - x0) * 320) / ((y1 - y0) * 220) == pytest.approx(1)
+    w.finish_crop()
+    wait(app, lambda: w.canvas._loaded.width == w.canvas._loaded.height)
+    assert w.history.state.crop_box is not None
+    w.undo_edit()
+    assert w.history.state.crop_box is None
+    w._edit_frames.frames = w._edit_frames.frames[:1] * 101
+    w._frame_states = w._frame_states[:1] * 101
+    w._frame = 100
+    w._refresh_frames()
+    assert w.frame_strip.findChildren(type(w._frame_labels[0]), 'FrameNumber')[-1].text() == '101'
+    assert w._frame_buttons[-1].isChecked()
 
 @pytest.mark.parametrize('source,fmt,suffix', [('sample.gif', 'GIF', 'gif'),
                                                ('sample.webp', '动画 WebP', 'webp')])

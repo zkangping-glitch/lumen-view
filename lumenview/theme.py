@@ -43,6 +43,10 @@ def apply_theme(app, dark=None):
     QPushButton#FrameThumb {{ background: {BG}; border: 2px solid {BORDER}; border-radius: 10px; padding: 4px; }}
     QPushButton#FrameThumb:hover {{ border-color: {ACCENT}; }}
     QPushButton#FrameThumb:checked {{ border-color: {ACCENT}; background: {ACCENT_SOFT}; }}
+    QLabel#FrameNumber {{ background: transparent; color: {TEXT}; font-size: 9pt; font-weight: 600; }}
+    QPushButton#CropRatio {{ border: 1px solid {BORDER}; border-radius: 10px; background: {BG}; padding: 4px; font-size: 9pt; }}
+    QPushButton#CropRatio:hover {{ border-color: {ACCENT}; background: {SURFACE_HI}; }}
+    QPushButton#CropRatio:checked {{ border: 2px solid {ACCENT}; background: {ACCENT_SOFT}; }}
     QListWidget {{ background: transparent; border: none; }}
     QListWidget::item {{ padding: 6px; margin: 2px; border-radius: 8px; }}
     QListWidget::item:selected {{ background: {SURFACE_HI}; }}

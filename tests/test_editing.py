@@ -106,6 +106,34 @@ def test_history():
     h.undo(); h.set(flipped=True)
     assert not h.redo_stack
 
+def test_free_crop_uses_source_pixels(photo, tmp_path):
+    dest = tmp_path / 'offset.png'
+    editing.export_image(photo, EditState(crop_box=(.25, .25, .75, .75)), str(dest), 'PNG')
+    with Image.open(dest) as im:
+        assert im.size == (40, 20)
+
+@pytest.mark.parametrize('fmt,suffix', [('PNG', 'png'), ('GIF', 'gif'), ('动画 WebP', 'webp')])
+def test_crop_position_roundtrip(tmp_path, app, fmt, suffix):
+    source = tmp_path / 'quadrants.gif'
+    frames = []
+    for upper_right, lower in (('green', 'blue'), ('lime', 'yellow')):
+        image = Image.new('RGB', (100, 80), 'red')
+        image.paste(upper_right, (50, 0, 100, 40))
+        image.paste(lower, (0, 40, 50, 80))
+        image.paste('white', (50, 40, 100, 80))
+        frames.append(image)
+    frames[0].save(source, save_all=True, append_images=frames[1:], duration=[100, 200], loop=3)
+    loaded = decoders.load_image(str(source))
+    destination = tmp_path / ('cropped.' + suffix)
+    editing.export_image(loaded, EditState(crop_box=(.5, 0, 1, .5)), str(destination), fmt)
+    reopened = decoders.load_image(str(destination))
+    assert (reopened.width, reopened.height) == (50, 40)
+    if fmt != 'PNG':
+        assert reopened.loop == 3
+        assert [f.duration for f in reopened.frames] == [100, 200]
+    color = reopened.first.pixelColor(25, 20)
+    assert color.green() > color.red() and color.green() > color.blue()
+
 @pytest.mark.parametrize('fmt,suffix', [('GIF', 'gif'), ('动画 WebP', 'webp')])
 def test_reordered_frames_with_individual_edits(animation, tmp_path, fmt, suffix):
     from lumenview.decoders import Frame, Loaded

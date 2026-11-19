@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from . import editing, icons, theme
 from .decoders import Frame, Loaded, load_image
+from .crop_overlay import CropOverlay
 from .window import MainWindow as ViewerWindow
 
 
@@ -214,6 +215,7 @@ class MainWindow(ViewerWindow):
         self._frame_states = []
         self._edit_frames = None
         self._frames_changed = False
+        self._crop_active = False
         super().__init__()
         self.setMinimumSize(800, 620)
         self._preview_pool = QThreadPool(self)
@@ -262,8 +264,8 @@ class MainWindow(ViewerWindow):
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.file_label, 1)
         layout.addStretch()
-        self.previous_button = button("❮", self.previous, self.canvas.viewport())
-        self.next_button = button("❯", self.next, self.canvas.viewport())
+        self.previous_button = button("❮", self.previous, self.canvas_area)
+        self.next_button = button("❯", self.next, self.canvas_area)
         for nav, name in ((self.previous_button, "上一张"), (self.next_button, "下一张")):
             nav.setObjectName("CanvasNav")
             nav.setAccessibleName(name)
@@ -271,6 +273,9 @@ class MainWindow(ViewerWindow):
             nav.setFixedSize(52, 72)
             nav.raise_()
         self.canvas.viewport().installEventFilter(self)
+        self.canvas.zoomChanged.connect(lambda _: self._position_navigation())
+        self.canvas.horizontalScrollBar().valueChanged.connect(lambda _: self._position_navigation())
+        self.canvas.verticalScrollBar().valueChanged.connect(lambda _: self._position_navigation())
         self._position_navigation()
         self.edit_button = button("编辑", self.enter_editor, primary=True)
         self.save_button = button("另存为", self.save_copy)
@@ -298,15 +303,20 @@ class MainWindow(ViewerWindow):
     def eventFilter(self, obj, event):
         if obj is self.canvas.viewport() and event.type() == QEvent.Type.Resize:
             self._position_navigation()
+            if hasattr(self, "crop_overlay"):
+                self.crop_overlay.setGeometry(self.canvas.viewport().rect())
         return super().eventFilter(obj, event)
 
     def _position_navigation(self):
         if not hasattr(self, "previous_button"):
             return
         viewport = self.canvas.viewport()
-        y = max(0, (viewport.height() - 72) // 2)
-        self.previous_button.move(12, y)
-        self.next_button.move(max(12, viewport.width() - 64), y)
+        top_left = viewport.mapTo(self.canvas_area, viewport.rect().topLeft())
+        y = top_left.y() + max(0, (viewport.height() - 72) // 2)
+        self.previous_button.move(top_left.x() + 12, y)
+        self.next_button.move(top_left.x() + max(12, viewport.width() - 64), y)
+        self.previous_button.raise_()
+        self.next_button.raise_()
 
     def _build_editor(self):
         self.editor = QScrollArea()
@@ -365,15 +375,44 @@ class MainWindow(ViewerWindow):
         crops = QVBoxLayout(crop)
         crops.setContentsMargins(0, 0, 0, 0)
         crops.addWidget(QLabel("裁剪比例"))
+        self._crop_ratios = [("自由", "free", None), ("原始", "original", "original"),
+                             ("1:1", "square", 1), ("9:16", "9:16", 9/16),
+                             ("16:9", "wide", 16/9), ("4:5", "portrait", 4/5),
+                             ("5:4", "5:4", 5/4), ("3:4", "3:4", 3/4),
+                             ("4:3", "4:3", 4/3), ("2:3", "2:3", 2/3),
+                             ("3:2", "3:2", 3/2), ("5:7", "5:7", 5/7),
+                             ("7:5", "7:5", 7/5), ("1:2", "1:2", 1/2), ("2:1", "2:1", 2)]
         self.ratio = QComboBox()
-        for name, value in (("原始比例", "original"), ("1 : 1", "square"), ("16 : 9", "wide"), ("4 : 5", "portrait")):
+        for name, value, _ in self._crop_ratios:
             self.ratio.addItem(name, value)
-        self.ratio.currentIndexChanged.connect(lambda _: self.change_edit(ratio=self.ratio.currentData()))
-        crops.addWidget(self.ratio)
-        hint = QLabel("以画面中心裁剪，预览即导出范围")
+        self.ratio.hide()
+        ratio_scroll = QScrollArea()
+        ratio_scroll.setWidgetResizable(True)
+        ratio_scroll.setFixedHeight(80)
+        ratio_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        ratio_strip = QWidget()
+        ratio_row = QHBoxLayout(ratio_strip)
+        ratio_row.setContentsMargins(2, 2, 2, 2)
+        self.ratio_buttons = []
+        for index, (name, _, value) in enumerate(self._crop_ratios):
+            glyph = "□" if value == 1 else ("▯" if isinstance(value, float) and value < 1 else "▭")
+            choice = button(f"{glyph}\n{name}", lambda checked=False, i=index: self._set_crop_ratio(i))
+            choice.setObjectName("CropRatio")
+            choice.setCheckable(True)
+            choice.setFixedSize(66, 60)
+            ratio_row.addWidget(choice)
+            self.ratio_buttons.append(choice)
+        ratio_scroll.setWidget(ratio_strip)
+        crops.addWidget(ratio_scroll)
+        hint = QLabel("拖动画布选择区域；边框和八个手柄可调整")
         hint.setObjectName("Hint")
         hint.setWordWrap(True)
         crops.addWidget(hint)
+        crop_actions = QHBoxLayout()
+        crop_actions.addWidget(button("重置", self.reset_crop))
+        crop_actions.addWidget(button("取消", self.cancel_crop))
+        crop_actions.addWidget(button("完成", self.finish_crop, primary=True))
+        crops.addLayout(crop_actions)
         crops.addStretch()
         self.panels.addWidget(crop)
         rotate = QWidget()
@@ -397,6 +436,7 @@ class MainWindow(ViewerWindow):
         self.editor.setWidget(editor_content)
         self.stack.parentWidget().layout().addWidget(self.editor)
         self.editor.hide()
+        self.crop_overlay = CropOverlay(self.canvas)
         self._select_tool(0)
 
     def _build_timeline(self):
@@ -418,7 +458,7 @@ class MainWindow(ViewerWindow):
         layout.addLayout(row)
         self.frame_scroll = QScrollArea()
         self.frame_scroll.setWidgetResizable(True)
-        self.frame_scroll.setFixedHeight(104)
+        self.frame_scroll.setFixedHeight(128)
         self.frame_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.frame_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.frame_strip = QWidget()
@@ -469,9 +509,55 @@ class MainWindow(ViewerWindow):
         self.timeline.hide()
 
     def _select_tool(self, index):
+        if self._crop_active and index != 1:
+            self._crop_active = False
+            self.crop_overlay.hide()
         self.panels.setCurrentIndex(index)
         for i, b in enumerate(self.tool_buttons):
             b.setChecked(i == index)
+        if index == 1 and self._editing and self._loaded and not self._crop_active:
+            self._crop_active = True
+            self.crop_overlay.set_box(self.history.state.crop_box)
+            self._set_crop_ratio(0)
+            self.crop_overlay.setGeometry(self.canvas.viewport().rect())
+            self.crop_overlay.show()
+            self.crop_overlay.raise_()
+            self._request_preview()
+
+    def _set_crop_ratio(self, index):
+        self.ratio.setCurrentIndex(index)
+        for i, choice in enumerate(self.ratio_buttons):
+            choice.setChecked(i == index)
+        self.crop_overlay.ratio_label = self._crop_ratios[index][0]
+        value = self._crop_ratios[index][2]
+        if value == "original" and self._loaded:
+            image = (self._edit_frames or self._loaded).frames[self._frame].image
+            value = image.width() / image.height()
+        self.crop_overlay.set_ratio(value)
+
+    def reset_crop(self):
+        if self._crop_active:
+            self.crop_overlay.reset_box()
+
+    def cancel_crop(self):
+        if self._crop_active:
+            self._select_tool(0)
+            self._request_preview()
+
+    def finish_crop(self):
+        if not self._crop_active:
+            return
+        if self._edit_frames and self.edit_scope.currentIndex() == 0:
+            sizes = {(frame.image.height(), frame.image.width()) if state.rotation in (90, 270)
+                     else (frame.image.width(), frame.image.height())
+                     for frame, state in zip(self._edit_frames.frames, self._frame_states)}
+            if len(sizes) > 1:
+                QMessageBox.warning(self, "帧尺寸不同", "全部帧裁剪需要各帧尺寸一致。请先统一帧尺寸，或选择仅当前帧。")
+                return
+        box = self.crop_overlay.box
+        ratio = self.ratio.currentData()
+        self._select_tool(0)
+        self.change_edit(crop_box=box, ratio=ratio)
 
     def _refresh_frames(self):
         while self.thumb_row.count():
@@ -479,16 +565,29 @@ class MainWindow(ViewerWindow):
             if item.widget():
                 item.widget().deleteLater()
         self._frame_buttons = []
+        self._frame_labels = []
         self._thumb_next = 0
         for index in range(len(self._edit_frames.frames)):
-            frame_button = button(str(index + 1), lambda checked=False, i=index: self.seek_frame(i))
+            frame_button = button("", lambda checked=False, i=index: self.seek_frame(i))
             frame_button.setObjectName("FrameThumb")
             frame_button.setCheckable(True)
             frame_button.setAccessibleName(f"第 {index + 1} 帧")
-            frame_button.setFixedSize(88, 80)
-            frame_button.setIconSize(QSize(76, 52))
+            frame_button.setFixedSize(98, 98)
+            card_layout = QVBoxLayout(frame_button)
+            card_layout.setContentsMargins(6, 5, 6, 5)
+            card_layout.setSpacing(3)
+            picture = QLabel()
+            picture.setFixedHeight(55)
+            picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            card_layout.addWidget(picture)
+            number = QLabel(str(index + 1))
+            number.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            number.setObjectName("FrameNumber")
+            number.setFixedHeight(22)
+            card_layout.addWidget(number)
             self.thumb_row.addWidget(frame_button)
             self._frame_buttons.append(frame_button)
+            self._frame_labels.append(picture)
         self.thumb_row.addStretch()
         self.scrub.setRange(0, len(self._frame_buttons) - 1)
         self._highlight_frame()
@@ -502,7 +601,7 @@ class MainWindow(ViewerWindow):
             image = self._edit_frames.frames[index].image.scaled(
                 76, 52, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation)
-            self._frame_buttons[index].setIcon(QIcon(QPixmap.fromImage(image)))
+            self._frame_labels[index].setPixmap(QPixmap.fromImage(image))
         self._thumb_next = end
         if end < len(self._frame_buttons):
             QTimer.singleShot(0, self._fill_frame_thumbnails)
@@ -581,6 +680,8 @@ class MainWindow(ViewerWindow):
         self._frames_changed = False
         self._edit_frames = None
         self._frame_states = []
+        self._crop_active = False
+        self.crop_overlay.hide()
         self._rail_was_visible = self._filmstrip.isVisible()
         self._filmstrip.hide()
         self.editor.show()
@@ -629,7 +730,7 @@ class MainWindow(ViewerWindow):
             slider.setValue(getattr(state, key))
             slider.blockSignals(False)
             self.values[key].setText(f"{getattr(state, key):+d}")
-        for combo, value in ((self.ratio, state.ratio), (self.speed, state.speed)):
+        for combo, value in ((self.speed, state.speed),):
             combo.blockSignals(True)
             combo.setCurrentIndex(combo.findData(value))
             combo.blockSignals(False)
@@ -672,13 +773,23 @@ class MainWindow(ViewerWindow):
 
     def rotate(self, degrees):
         if self._editing:
-            self.change_edit(rotation=(self.history.state.rotation + degrees) % 360)
+            state = self.history.state
+            changes = {"rotation": (state.rotation + degrees) % 360}
+            if state.crop_box and degrees % 360 == 90:
+                x0, y0, x1, y1 = state.crop_box
+                changes["crop_box"] = (1 - y1, x0, 1 - y0, x1)
+            self.change_edit(**changes)
         else:
             super().rotate(degrees)
 
     def flip(self):
         if self._editing:
-            self.change_edit(flipped=not self.history.state.flipped)
+            state = self.history.state
+            changes = {"flipped": not state.flipped}
+            if state.crop_box:
+                x0, y0, x1, y1 = state.crop_box
+                changes["crop_box"] = (1 - x1, y0, 1 - x0, y1)
+            self.change_edit(**changes)
         else:
             super().flip()
 
@@ -697,6 +808,8 @@ class MainWindow(ViewerWindow):
         loaded, state, index = self._edit_frames or self._loaded, self.history.state, self._frame
         if self._comparing:
             state = editing.EditState()
+        elif self._crop_active:
+            state = replace(state, crop_box=None, ratio="original")
         self._preview_pool.start(Work(self._preview_token, self._preview_signals, lambda: editing.preview(loaded, state, index)))
 
     def _preview_done(self, token, image, error):
@@ -708,12 +821,25 @@ class MainWindow(ViewerWindow):
             return
         fit = self.canvas.is_fit_mode()
         old_transform = self.canvas.transform()
+        old_size = self.canvas._item.pixmap().size()
+        old_center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
         self.canvas.set_loaded(Loaded(self._loaded.path, [Frame(image)], self._loaded.fmt, image.width(), image.height()))
         if not fit:
             self.canvas.setTransform(old_transform)
             self.canvas._fit_mode = False
+            if old_size.width() and old_size.height():
+                self.canvas.centerOn(old_center.x() * image.width() / old_size.width(),
+                                     old_center.y() * image.height() / old_size.height())
         self.canvas._fade.stop()
         self.canvas._item.setOpacity(1)
+        if self._crop_active:
+            source = (self._edit_frames or self._loaded).frames[self._frame].image
+            self.crop_overlay.reference_size = ((source.height(), source.width())
+                                                if self.history.state.rotation in (90, 270)
+                                                else (source.width(), source.height()))
+            self.crop_overlay.setGeometry(self.canvas.viewport().rect())
+            self.crop_overlay.raise_()
+            self.crop_overlay.update()
         self._update_edit_time()
         if self._playing:
             timing = dict(editing.selected_frames(self._edit_frames or self._loaded, self.history.state))
@@ -742,6 +868,8 @@ class MainWindow(ViewerWindow):
                 self.history.redo_stack.clear()
                 self._sync_edit_controls()
                 self._highlight_frame()
+                if self._crop_active and self.edit_scope.currentIndex() == 1:
+                    self.crop_overlay.set_box(self.history.state.crop_box)
             self._request_preview()
 
     def _update_edit_time(self):
@@ -784,6 +912,8 @@ class MainWindow(ViewerWindow):
         self._preview_token += 1
         self._preview_pool.clear()
         self._editing = False
+        self._crop_active = False
+        self.crop_overlay.hide()
         self._comparing = False
         self.editor.hide()
         self.timeline.hide()
