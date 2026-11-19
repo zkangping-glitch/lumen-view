@@ -21,3 +21,6 @@ lumenview = "lumenview.__main__:main"
 
 [tool.setuptools]
 packages = ["lumenview"]
+
+[tool.setuptools.package-data]
+lumenview = ["assets/*.png"]

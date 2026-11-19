@@ -1,6 +1,8 @@
-"""Hand-drawn vector icons plus the Lumen View app mark. No image assets."""
+"""Hand-drawn interface icons plus the Lumen View app mark."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
@@ -174,7 +176,14 @@ def accent_dot(size: int = 8) -> QPixmap:
 
 
 def app_icon() -> QIcon:
-    """Dark tile, warm bloom, a lens ring - readable from 16 px to 256 px."""
+    """Load the authored app mark, with the original vector mark as a fallback."""
+    asset = Path(__file__).resolve().parent / "assets" / "LumenView.png"
+    if asset.is_file():
+        result = QIcon(str(asset))
+        if not result.isNull():
+            return result
+
+    # Fallback used only if an incomplete source checkout is launched.
     pm = QPixmap(256, 256)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)

@@ -28,6 +28,12 @@
 
 ## Windows 启动
 
+从 GitHub Actions 的 `LumenView-Windows` 构建产物下载 `LumenView-Setup.exe`。安装器为当前用户安装，不要求管理员权限；应用已包含 Python、Qt 与图片解码依赖，无需另外配置运行环境。构建产物同时提供免安装的 `LumenView-portable.zip`。
+
+安装器目前未做代码签名，Windows SmartScreen 可能显示“未知发布者”。确认文件来自本仓库的构建记录后，可选择“更多信息 → 仍要运行”。
+
+### 从源码运行
+
 需要 **64 位 Python 3.12**。仓库不包含 `.pylibs` 依赖目录，首次使用先安装：
 
 ```powershell
@@ -45,13 +51,16 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m lumenview "D:\photos\photo.gif"
 ```
 
-`LumenView.exe` 为独立启动器，不包含 Python 与 Qt。修改后的启动器源码会探测项目内 Python 或系统 Python 3.12，不使用开发者个人路径。**仓库原有 EXE 尚未替换**；请先使用 CMD，或构建新启动器：
+### 构建 Windows 安装器
 
 ```powershell
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:LumenView.exe /win32icon:LumenView.ico /r:System.Windows.Forms.dll tools/LumenView.cs
+python -m pip install -e . -r requirements.txt "pyinstaller>=6.16,<7"
+python tools/make_icon.py
+pyinstaller --noconfirm --clean packaging/LumenView.spec
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\LumenView.iss
 ```
 
-GitHub Actions 的 Windows 检查会编译启动器并上传构建产物。
+安装文件输出到 `dist\installer\LumenView-Setup.exe`。GitHub Actions 会在 Linux／Windows 测试通过后自动执行同样的独立应用打包、启动冒烟测试与安装器构建。
 
 ## 快捷键
 
@@ -82,7 +91,7 @@ python tools/selftest.py
 - 多页 TIFF 当前显示第一页；SVG 静态渲染，最长边 2048px。
 - Pillow／PSD／RAW 主图限制 6400 万像素，动画解码预算 256 MiB；超出时提示错误，不静默截断动画。
 - 文件夹最多 5000 张；缩略图按可见区域加载，缓存最多 128 张。
-- Windows 启动器未签名；本地 Linux 验证不能替代 Windows 真机安装和交互验收。
+- Windows 应用和安装器未签名；自动构建的启动冒烟测试不能替代 Windows 真机交互验收。
 
 ## 代码结构
 
