@@ -706,7 +706,9 @@ class MainWindow(ViewerWindow):
         self.scope.setText("逐帧编辑 · 可选择作用范围" if self._loaded.animated else "原图保留 · 保存副本")
         self._sync_edit_controls()
         self._update_actions()
-        self._request_preview()
+        self._select_tool(self.panels.currentIndex())
+        if not self._crop_active:
+            self._request_preview()
 
     def change_edit(self, **changes):
         if not self._editing:

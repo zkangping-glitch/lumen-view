@@ -245,6 +245,26 @@ def test_crop_drag_ratio_apply_undo_and_many_frame_labels(app, window):
     assert w.frame_strip.findChildren(type(w._frame_labels[0]), 'FrameNumber')[-1].text() == '101'
     assert w._frame_buttons[-1].isChecked()
 
+def test_reenter_editor_with_crop_tab_selected(app, window, monkeypatch):
+    w = window
+    load(app, w, 'sample.jpg')
+    w.enter_editor()
+    w._select_tool(1)
+    assert w._crop_active
+    w.cancel_editor()
+    assert w.panels.currentIndex() == 1
+    replacement = str(Path('samples/sample.png').resolve())
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a, **kw: (replacement, ''))
+    QTest.mouseClick(w.open_button, Qt.MouseButton.LeftButton)
+    wait(app, lambda: w._loaded is not None and w._loaded.path == replacement)
+    QTest.mouseClick(w.edit_button, Qt.MouseButton.LeftButton)
+    wait(app, lambda: w._crop_active and w.crop_overlay.isVisible())
+    before = w.crop_overlay.box
+    QTest.mouseClick(w.ratio_buttons[2], Qt.MouseButton.LeftButton)
+    assert w.ratio_buttons[2].isChecked()
+    assert w.crop_overlay.ratio == 1
+    assert w.crop_overlay.box != before
+
 @pytest.mark.parametrize('source,fmt,suffix', [('sample.gif', 'GIF', 'gif'),
                                                ('sample.webp', '动画 WebP', 'webp')])
 def test_frame_sequence_roundtrip(app, window, tmp_path, monkeypatch, source, fmt, suffix):
