@@ -20,7 +20,7 @@ dependencies = [
 lumenview = "lumenview.__main__:main"
 
 [tool.setuptools]
-packages = ["lumenview"]
+packages = ["lumenview", "lumenview.assets"]
 
 [tool.setuptools.package-data]
-lumenview = ["assets/*.png"]
+"lumenview.assets" = ["*.png"]
