@@ -1,36 +1,54 @@
-"""Render the app icon to build/LumenView.ico (used by the C# launcher)."""
+"""Build the runtime PNG and multi-resolution Windows icon."""
 
 from __future__ import annotations
 
-import os
-import sys
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+from PIL import Image, ImageChops, ImageFilter, ImageOps
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QSize  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
-from PIL import Image  # noqa: E402
-
-from lumenview import icons  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "assets" / "LumenView-source.png"
+RUNTIME_PNG = ROOT / "lumenview" / "assets" / "LumenView.png"
+WINDOWS_ICO = ROOT / "LumenView.ico"
 
 
 def main() -> int:
-    app = QApplication(sys.argv)
-    pm = icons.app_icon().pixmap(QSize(256, 256))
-    build = os.path.join(ROOT, "build")
-    os.makedirs(build, exist_ok=True)
-    png = os.path.join(build, "LumenView.png")
-    pm.save(png)
+    source = Image.open(SOURCE).convert("RGB")
 
-    img = Image.open(png).convert("RGBA")
-    ico = os.path.join(ROOT, "LumenView.ico")
-    img.save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    print("wrote", ico)
+    # Trim the generated canvas around the mark while retaining its soft shadow.
+    difference = ImageChops.difference(source, Image.new("RGB", source.size, "white"))
+    bounds = difference.convert("L").point(lambda value: 255 if value > 10 else 0).getbbox()
+    if bounds is None:
+        raise RuntimeError(f"No icon artwork found in {SOURCE}")
+    left, top, right, bottom = bounds
+    padding = max(24, int(max(right - left, bottom - top) * 0.035))
+    bounds = (
+        max(0, left - padding),
+        max(0, top - padding),
+        min(source.width, right + padding),
+        min(source.height, bottom + padding),
+    )
+    artwork = ImageOps.fit(source.crop(bounds), (1024, 1024), Image.Resampling.LANCZOS)
+
+    # Transparent corners keep the circular mark clean on both light and dark taskbars.
+    alpha = Image.new("L", artwork.size, 0)
+    from PIL import ImageDraw
+
+    ImageDraw.Draw(alpha).ellipse((12, 12, 1012, 1012), fill=255)
+    alpha = alpha.filter(ImageFilter.GaussianBlur(3.0))
+    artwork = artwork.convert("RGBA")
+    artwork.putalpha(alpha)
+
+    RUNTIME_PNG.parent.mkdir(parents=True, exist_ok=True)
+    artwork.save(RUNTIME_PNG, optimize=True)
+    artwork.save(
+        WINDOWS_ICO,
+        sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48),
+               (64, 64), (128, 128), (256, 256)],
+    )
+    print(f"wrote {RUNTIME_PNG}")
+    print(f"wrote {WINDOWS_ICO}")
     return 0
 
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections import OrderedDict
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QLabel, QListWidget, QListWidgetItem, QVBoxLayout,
@@ -18,14 +19,14 @@ MAX_THUMBS = 1500
 
 def _placeholder(text: str = "") -> QPixmap:
     pm = QPixmap(THUMB_W, THUMB_H)
-    pm.fill(QColor("#101215"))
+    pm.fill(QColor(theme.SURFACE))
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    p.setBrush(QColor("#171A1F"))
-    p.setPen(QColor("#22262D"))
+    p.setBrush(QColor(theme.BG))
+    p.setPen(QColor(theme.BORDER))
     p.drawRoundedRect(1, 1, THUMB_W - 2, THUMB_H - 2, 9, 9)
     if text:
-        p.setPen(QColor("#4E4A43"))
+        p.setPen(QColor(theme.MUTED))
         font = p.font()
         font.setPointSize(9)
         p.setFont(font)
@@ -97,15 +98,19 @@ class Filmstrip(QFrame):
         self._signals.ready.connect(self._on_thumb_ready)
 
         self._items: dict[str, QListWidgetItem] = {}
-        self._cache: dict[str, QPixmap] = {}
+        self._cache: OrderedDict[str, QPixmap] = OrderedDict()
         self._pending: set[str] = set()
         self._syncing = False
         self._placeholder = _placeholder()
 
         self.list.currentItemChanged.connect(self._on_current_changed)
+        self.list.verticalScrollBar().valueChanged.connect(self._request_visible)
 
     # ------------------------------------------------------------------ #
     def set_files(self, paths: list[str], current: str | None = None) -> None:
+        self._pool.clear()
+        self._pending.clear()
+        self._cache.clear()
         self._syncing = True
         self.list.clear()
         self._items.clear()
@@ -127,9 +132,7 @@ class Filmstrip(QFrame):
             name = name[:21] + "…"
         self.header.setText(f"{name.upper()}  ·  {len(paths)}" if paths else "")
 
-        for path in paths[:MAX_THUMBS]:
-            if path not in self._cache:
-                self._request(path)
+        QTimer.singleShot(0, self._request_visible)
 
         if current:
             self.set_current(current)
@@ -148,6 +151,19 @@ class Filmstrip(QFrame):
         self.list.setCurrentItem(item)
         self._syncing = False
         self.list.scrollToItem(item, QListWidget.ScrollHint.PositionAtCenter)
+        self._request_visible()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._request_visible)
+
+    def _request_visible(self, *_args):
+        if not self.isVisible():
+            return
+        bounds = self.list.viewport().rect().adjusted(0, -180, 0, 180)
+        for path, item in self._items.items():
+            if path not in self._cache and self.list.visualItemRect(item).intersects(bounds):
+                self._request(path)
 
     # ------------------------------------------------------------------ #
     def _request(self, path: str) -> None:
@@ -166,6 +182,11 @@ class Filmstrip(QFrame):
             return
         pix = QPixmap.fromImage(image)
         self._cache[path] = pix
+        while len(self._cache) > 128:
+            old_path, _ = self._cache.popitem(last=False)
+            old_item = self._items.get(old_path)
+            if old_item is not None:
+                old_item.setIcon(self._placeholder)
         item.setIcon(pix)
 
     def _on_current_changed(self, current: QListWidgetItem | None, _previous) -> None:
