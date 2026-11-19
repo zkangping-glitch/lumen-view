@@ -105,3 +105,20 @@ def test_history():
     h.redo(); assert h.state.brightness == 10
     h.undo(); h.set(flipped=True)
     assert not h.redo_stack
+
+@pytest.mark.parametrize('fmt,suffix', [('GIF', 'gif'), ('动画 WebP', 'webp')])
+def test_reordered_frames_with_individual_edits(animation, tmp_path, fmt, suffix):
+    from lumenview.decoders import Frame, Loaded
+    frames = [animation.frames[2], animation.frames[0], animation.frames[1]]
+    extra = decoders._pil_to_qimage(Image.new('RGBA', (24, 24), 'magenta'))
+    frames.insert(2, Frame(extra, 120))
+    project = Loaded(animation.path, frames, animation.fmt, animation.width, animation.height,
+                     loop=animation.loop)
+    states = [EditState() for _ in frames]
+    states[1] = EditState(rotation=180)
+    dest = tmp_path / ('reordered.' + suffix)
+    editing.export_image(project, EditState(), str(dest), fmt, frame_states=states)
+    reopened = decoders.load_image(str(dest))
+    assert len(reopened.frames) == 4
+    assert reopened.loop == animation.loop
+    assert [f.duration for f in reopened.frames] == [300, 100, 120, 200]

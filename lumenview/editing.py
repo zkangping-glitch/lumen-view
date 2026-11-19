@@ -85,7 +85,8 @@ def selected_frames(loaded: Loaded, state: EditState) -> list[tuple[int, int]]:
 
 
 def export_image(loaded: Loaded, state: EditState, destination: str, fmt: str,
-                 quality: int = 90, frame_index: int = 0, background: str = "white") -> None:
+                 quality: int = 90, frame_index: int = 0, background: str = "white",
+                 frame_states: list[EditState] | None = None) -> None:
     """Keep the original untouched; never leave a partially written destination."""
     target = Path(destination).resolve()
     original = Path(loaded.path).resolve()
@@ -101,7 +102,18 @@ def export_image(loaded: Loaded, state: EditState, destination: str, fmt: str,
                    for i, _ in chosen)
     if estimate > MAX_EXPORT_BYTES:
         raise ValueError("动画导出超过内存预算，请缩短片段后重试")
-    images = [transform(to_pil(loaded.frames[i].image), state) for i, _ in chosen]
+    images = [transform(to_pil(loaded.frames[i].image), frame_states[i] if frame_states else state)
+              for i, _ in chosen]
+    if animated and images:
+        # GIF/WebP require a common canvas even when inserted frames have other sizes.
+        width = max(image.width for image in images)
+        height = max(image.height for image in images)
+        normalized = []
+        for image in images:
+            canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
+            normalized.append(canvas)
+        images = normalized
     options: dict = {}
     output_format = {"WebP": "WEBP", "动画 WebP": "WEBP"}.get(fmt, fmt)
     if output_format in {"JPEG", "WEBP"}:

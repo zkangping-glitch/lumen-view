@@ -63,7 +63,8 @@ def test_edit_undo_gif_trim_export_and_cancel(app, window, tmp_path, monkeypatch
     w._stop_edit_playback()
     destination = tmp_path / 'edited.gif'
     monkeypatch.setattr(ExportDialog, 'exec', lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **kw: (str(destination), 'GIF'))
+    monkeypatch.setattr(QFileDialog, 'exec', lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(QFileDialog, 'selectedFiles', lambda self: [str(destination)])
     messages = []
     monkeypatch.setattr(QMessageBox, 'information', lambda *a, **kw: messages.append(a))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **kw: pytest.fail(str(a)))
@@ -97,3 +98,63 @@ def test_dark_appearance_and_minimum_window(app, window):
     assert theme.BG == '#171819'
     assert w.save_button.geometry().right() < w.toolbar.width()
     theme.apply_theme(app, dark=False)
+
+def test_frame_controls_at_150_percent(app, window, tmp_path, monkeypatch):
+    w = window
+    load(app, w, 'sample.gif')
+    w.resize(800, 620)
+    w.enter_editor()
+    wait(app, lambda: len(w._frame_buttons) == len(w._loaded.frames))
+    assert w.editor.width() == 336
+    assert all(b.width() >= 70 for b in w.tool_buttons)
+    assert all(b.text() == t for b, t in zip(w.tool_buttons, ('调整', '裁剪', '旋转')))
+    assert w.frame_scroll.viewport().width() > 250
+    assert w._frame_buttons[0].isChecked()
+    w.seek_frame(2)
+    assert w._frame_buttons[2].isChecked()
+    w.edit_scope.setCurrentIndex(1)
+    w.sliders['brightness'].setValue(25)
+    assert w._frame_states[2].brightness == 25
+    assert w._frame_states[1].brightness == 0
+    w.undo_edit()
+    assert w._frame_states[2].brightness == 0
+    w.edit_scope.setCurrentIndex(0)
+    w.sliders['contrast'].setValue(15)
+    assert all(state.contrast == 15 for state in w._frame_states)
+    w.delete_frame()
+    assert len(w._edit_frames.frames) == len(w._loaded.frames) - 1
+    insert = tmp_path / 'insert.png'
+    from PIL import Image
+    Image.new('RGBA', (48, 48), 'magenta').save(insert)
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a, **k: (str(insert), ''))
+    w.add_frame()
+    assert len(w._edit_frames.frames) == len(w._loaded.frames)
+    assert w._frame == 3
+    single = tmp_path / 'single.png'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **k: (str(single), ''))
+    w.export_frame()
+    assert single.exists()
+
+@pytest.mark.parametrize('source,fmt,suffix', [('sample.gif', 'GIF', 'gif'),
+                                               ('sample.webp', '动画 WebP', 'webp')])
+def test_frame_sequence_roundtrip(app, window, tmp_path, monkeypatch, source, fmt, suffix):
+    w = window
+    load(app, w, source)
+    w.enter_editor()
+    original_count = len(w._edit_frames.frames)
+    w.seek_frame(0)
+    w.delete_frame()
+    insert = tmp_path / 'added.png'
+    from PIL import Image
+    Image.new('RGB', (44, 33), '#af3388').save(insert)
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a, **kw: (str(insert), ''))
+    w.add_frame()
+    assert len(w._edit_frames.frames) == original_count
+    destination = tmp_path / f'roundtrip.{suffix}'
+    from lumenview import editing
+    editing.export_image(w._edit_frames, w.history.state, str(destination), fmt,
+                         frame_states=w._frame_states)
+    reopened = decoders.load_image(str(destination))
+    assert len(reopened.frames) == original_count
+    assert reopened.loop == w._loaded.loop
+    assert reopened.frames[1].image.pixelColor(reopened.width // 2, reopened.height // 2).red() > 120

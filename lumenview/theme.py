@@ -26,7 +26,7 @@ def apply_theme(app, dark=None):
     app.setStyleSheet(f'''
     * {{ color: {TEXT}; font-size: 10pt; }}
     QMainWindow, QWidget#Root, QWidget#CanvasArea, QWidget#MessagePage {{ background: {BG}; }}
-    QWidget#TopBar, QFrame#Editor, QWidget#Timeline {{ background: {SURFACE}; }}
+    QWidget#TopBar, QScrollArea#Editor, QFrame#EditorContent, QWidget#Timeline {{ background: {SURFACE}; }}
     QWidget#TopBar {{ border-bottom: 1px solid {BORDER}; }}
     QLabel#Brand {{ font-size: 17pt; font-weight: 500; }}
     QLabel#EditorTitle, QLabel#ErrorTitle {{ font-size: 14pt; font-weight: 500; }}
@@ -38,11 +38,24 @@ def apply_theme(app, dark=None):
     QPushButton#Primary:hover {{ background: {ACCENT_HOVER}; }}
     QPushButton:focus, QToolButton:focus {{ border: 1px solid {ACCENT}; }}
     QFrame#Rail {{ background: {SURFACE}; border-radius: 12px; }}
-    QFrame#Editor {{ border-left: 1px solid {BORDER}; }}
+    QScrollArea#Editor {{ border: none; border-left: 1px solid {BORDER}; }}
+    QPushButton#FrameThumb {{ background: {BG}; border: 2px solid {BORDER}; border-radius: 10px; padding: 4px; }}
+    QPushButton#FrameThumb:hover {{ border-color: {ACCENT}; }}
+    QPushButton#FrameThumb:checked {{ border-color: {ACCENT}; background: {ACCENT_SOFT}; }}
     QListWidget {{ background: transparent; border: none; }}
     QListWidget::item {{ padding: 6px; margin: 2px; border-radius: 8px; }}
     QListWidget::item:selected {{ background: {SURFACE_HI}; }}
-    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 8px; padding: 8px; min-height: 18px; }}
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{ background: {SURFACE}; border: 1px solid {MUTED}; border-radius: 9px; padding: 8px 12px; min-height: 22px; selection-background-color: {ACCENT}; selection-color: {ACCENT_TEXT}; }}
+    QComboBox:hover, QLineEdit:hover {{ border-color: {ACCENT}; }}
+    QComboBox:focus, QLineEdit:focus {{ border: 2px solid {ACCENT}; background: {BG}; }}
+    QComboBox:disabled, QLineEdit:disabled {{ color: {MUTED}; background: {SURFACE_HI}; border-color: {BORDER}; }}
+    QComboBox::drop-down {{ border: none; width: 32px; }}
+    QComboBox::down-arrow {{ image: none; border: none; }}
+    QComboBox QAbstractItemView {{ background: {SURFACE}; color: {TEXT}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; selection-color: {ACCENT_TEXT}; padding: 5px; outline: none; }}
+    QPushButton#CanvasNav {{ background: {SURFACE}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 18px; font-size: 18pt; padding: 0; }}
+    QPushButton#CanvasNav:hover {{ background: {SURFACE_HI}; border-color: {ACCENT}; }}
+    QPushButton#CanvasNav:pressed {{ background: {ACCENT}; color: {ACCENT_TEXT}; }}
+    QPushButton#CanvasNav:disabled {{ color: {MUTED}; background: {SURFACE_HI}; }}
     QFrame#SegmentedControl {{ background: {SURFACE_HI}; border: none; border-radius: 11px; }}
     QPushButton#SegmentedButton {{ color: {MUTED}; border: none; border-radius: 8px; padding: 6px 10px; min-height: 18px; }}
     QPushButton#SegmentedButton:hover {{ background: {BG}; color: {TEXT}; }}

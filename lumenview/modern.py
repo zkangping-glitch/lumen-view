@@ -2,19 +2,19 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QRunnable, QSize, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QComboBox, QDialog, QFileDialog, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QSlider,
-    QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from . import editing, icons, theme
-from .decoders import Frame, Loaded
+from .decoders import Frame, Loaded, load_image
 from .window import MainWindow as ViewerWindow
 
 
@@ -208,6 +208,9 @@ class MainWindow(ViewerWindow):
         self._frame = 0
         self._comparing = False
         self._playing = False
+        self._frame_states = []
+        self._edit_frames = None
+        self._frames_changed = False
         super().__init__()
         self.setMinimumSize(800, 620)
         self._preview_pool = QThreadPool(self)
@@ -247,9 +250,6 @@ class MainWindow(ViewerWindow):
                 item.widget().hide()
         self.toolbar.setFixedHeight(76)
         layout.setContentsMargins(24, 12, 24, 12)
-        brand = QLabel("Lumen")
-        brand.setObjectName("Brand")
-        layout.addWidget(brand)
         self.open_button = button("打开", self.open_file)
         layout.addWidget(self.open_button)
         layout.addStretch()
@@ -259,10 +259,16 @@ class MainWindow(ViewerWindow):
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.file_label, 1)
         layout.addStretch()
-        self.previous_button = button("上一张", self.previous)
-        self.next_button = button("下一张", self.next)
-        layout.addWidget(self.previous_button)
-        layout.addWidget(self.next_button)
+        self.previous_button = button("❮", self.previous, self.stack)
+        self.next_button = button("❯", self.next, self.stack)
+        for nav, name in ((self.previous_button, "上一张"), (self.next_button, "下一张")):
+            nav.setObjectName("CanvasNav")
+            nav.setAccessibleName(name)
+            nav.setToolTip(name)
+            nav.setFixedSize(52, 72)
+            nav.raise_()
+        self.stack.installEventFilter(self)
+        self._position_navigation()
         self.edit_button = button("编辑", self.enter_editor, primary=True)
         self.save_button = button("另存为", self.save_copy)
         self.cancel_button = button("取消", self.cancel_editor)
@@ -286,11 +292,27 @@ class MainWindow(ViewerWindow):
             action.triggered.connect(callback)
             self.addAction(action)
 
+    def eventFilter(self, obj, event):
+        if obj is self.stack and event.type() == QEvent.Type.Resize:
+            self._position_navigation()
+        return super().eventFilter(obj, event)
+
+    def _position_navigation(self):
+        if not hasattr(self, "previous_button"):
+            return
+        y = max(0, (self.stack.height() - 72) // 2)
+        self.previous_button.move(12, y)
+        self.next_button.move(max(12, self.stack.width() - 64), y)
+
     def _build_editor(self):
-        self.editor = QFrame()
+        self.editor = QScrollArea()
         self.editor.setObjectName("Editor")
-        self.editor.setFixedWidth(264)
-        layout = QVBoxLayout(self.editor)
+        self.editor.setFixedWidth(336)
+        self.editor.setWidgetResizable(True)
+        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        editor_content = QFrame()
+        editor_content.setObjectName("EditorContent")
+        layout = QVBoxLayout(editor_content)
         layout.setContentsMargins(22, 26, 22, 22)
         layout.setSpacing(24)
         title = QLabel("编辑图片")
@@ -299,12 +321,18 @@ class MainWindow(ViewerWindow):
         self.scope = QLabel("所有编辑保存到副本")
         self.scope.setObjectName("Hint")
         layout.addWidget(self.scope)
+        self.edit_scope = QComboBox()
+        self.edit_scope.addItems(["作用于全部帧", "仅当前帧"])
+        self.edit_scope.setAccessibleName("调整作用范围")
+        layout.addWidget(self.edit_scope)
         tools = QHBoxLayout()
         self.tool_buttons = []
         self.panels = QStackedWidget()
         for i, text in enumerate(("调整", "裁剪", "旋转")):
             b = button(text, lambda checked=False, index=i: self._select_tool(index))
             b.setCheckable(True)
+            b.setMinimumWidth(74)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             tools.addWidget(b)
             self.tool_buttons.append(b)
         layout.addLayout(tools)
@@ -362,6 +390,7 @@ class MainWindow(ViewerWindow):
         self.compare_button.pressed.connect(lambda: self.compare_original(True))
         self.compare_button.released.connect(lambda: self.compare_original(False))
         layout.addWidget(self.compare_button)
+        self.editor.setWidget(editor_content)
         self.stack.parentWidget().layout().addWidget(self.editor)
         self.editor.hide()
         self._select_tool(0)
@@ -382,13 +411,28 @@ class MainWindow(ViewerWindow):
         self.speed = SpeedSelector()
         self.speed.currentIndexChanged.connect(lambda _: self.change_edit(speed=self.speed.currentData()))
         row.addWidget(self.speed)
-        row.addWidget(QLabel("调整应用于全部帧"))
         layout.addLayout(row)
-        self.thumb_row = QHBoxLayout()
-        layout.addLayout(self.thumb_row)
+        self.frame_scroll = QScrollArea()
+        self.frame_scroll.setWidgetResizable(True)
+        self.frame_scroll.setFixedHeight(104)
+        self.frame_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.frame_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.frame_strip = QWidget()
+        self.thumb_row = QHBoxLayout(self.frame_strip)
+        self.thumb_row.setContentsMargins(0, 4, 0, 4)
+        self.thumb_row.setSpacing(8)
+        self.frame_scroll.setWidget(self.frame_strip)
+        layout.addWidget(self.frame_scroll)
+        frame_actions = QHBoxLayout()
+        frame_actions.addWidget(button("添加帧", self.add_frame))
+        frame_actions.addWidget(button("删除当前帧", self.delete_frame))
+        frame_actions.addWidget(button("导出当前帧", self.export_frame))
+        frame_actions.addStretch()
+        layout.addLayout(frame_actions)
         self.scrub = QSlider(Qt.Orientation.Horizontal)
         self.scrub.setAccessibleName("GIF 预览帧")
         self.scrub.valueChanged.connect(self.seek_frame)
+        self.scrub.hide()
         layout.addWidget(self.scrub)
         trim = QHBoxLayout()
         trim.setSpacing(12)
@@ -413,7 +457,10 @@ class MainWindow(ViewerWindow):
             trim.addWidget(field, 1)
         self.trim_start.valueChanged.connect(lambda v: self._trim_changed(True, v))
         self.trim_end.valueChanged.connect(lambda v: self._trim_changed(False, v))
-        layout.addLayout(trim)
+        self.trim_panel = QWidget()
+        self.trim_panel.setLayout(trim)
+        self.trim_panel.hide()
+        layout.addWidget(self.trim_panel)
         self.centralWidget().layout().insertWidget(2, self.timeline)
         self.timeline.hide()
 
@@ -421,6 +468,99 @@ class MainWindow(ViewerWindow):
         self.panels.setCurrentIndex(index)
         for i, b in enumerate(self.tool_buttons):
             b.setChecked(i == index)
+
+    def _refresh_frames(self):
+        while self.thumb_row.count():
+            item = self.thumb_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._frame_buttons = []
+        self._thumb_next = 0
+        for index in range(len(self._edit_frames.frames)):
+            frame_button = button(str(index + 1), lambda checked=False, i=index: self.seek_frame(i))
+            frame_button.setObjectName("FrameThumb")
+            frame_button.setCheckable(True)
+            frame_button.setAccessibleName(f"第 {index + 1} 帧")
+            frame_button.setFixedSize(88, 80)
+            frame_button.setIconSize(QSize(76, 52))
+            self.thumb_row.addWidget(frame_button)
+            self._frame_buttons.append(frame_button)
+        self.thumb_row.addStretch()
+        self.scrub.setRange(0, len(self._frame_buttons) - 1)
+        self._highlight_frame()
+        QTimer.singleShot(0, self._fill_frame_thumbnails)
+
+    def _fill_frame_thumbnails(self):
+        if not self._editing or not self._edit_frames:
+            return
+        end = min(self._thumb_next + 12, len(self._frame_buttons))
+        for index in range(self._thumb_next, end):
+            image = self._edit_frames.frames[index].image.scaled(
+                76, 52, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+            self._frame_buttons[index].setIcon(QIcon(QPixmap.fromImage(image)))
+        self._thumb_next = end
+        if end < len(self._frame_buttons):
+            QTimer.singleShot(0, self._fill_frame_thumbnails)
+
+    def _highlight_frame(self):
+        for index, frame_button in enumerate(getattr(self, "_frame_buttons", [])):
+            frame_button.setChecked(index == self._frame)
+        if getattr(self, "_frame_buttons", None):
+            self.frame_scroll.ensureWidgetVisible(self._frame_buttons[self._frame], 12, 0)
+
+    def add_frame(self):
+        if not self._editing or not self._edit_frames:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "插入图片帧", str(Path(self._loaded.path).parent))
+        if not path:
+            return
+        try:
+            image = load_image(path).first
+        except Exception as exc:
+            QMessageBox.warning(self, "添加帧失败", str(exc))
+            return
+        position = self._frame + 1
+        duration = self._edit_frames.frames[self._frame].duration or 100
+        self._edit_frames.frames.insert(position, Frame(image, duration))
+        self._frame_states.insert(position, editing.EditState())
+        self._frames_changed = True
+        self._frame = position
+        self.history = editing.History()
+        self._refresh_frames()
+        self._sync_edit_controls()
+        self._request_preview()
+
+    def delete_frame(self):
+        if not self._editing or not self._edit_frames:
+            return
+        if len(self._edit_frames.frames) <= 1:
+            QMessageBox.information(self, "保留一帧", "动画至少需要保留一帧。")
+            return
+        self._edit_frames.frames.pop(self._frame)
+        self._frame_states.pop(self._frame)
+        self._frame = min(self._frame, len(self._edit_frames.frames) - 1)
+        self.history = editing.History()
+        self.history.state = self._frame_states[self._frame]
+        self._frames_changed = True
+        self._refresh_frames()
+        self._sync_edit_controls()
+        self._request_preview()
+
+    def export_frame(self):
+        if not self._editing or not self._edit_frames:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出当前帧", str(Path(self._loaded.path).with_name(
+                f"{Path(self._loaded.path).stem}-帧{self._frame + 1}.png")), "PNG (*.png)",
+            options=QFileDialog.Option.DontUseNativeDialog)
+        if path:
+            try:
+                editing.export_image(self._edit_frames, self._frame_states[self._frame],
+                                     path if path.lower().endswith('.png') else path + '.png',
+                                     "PNG", frame_index=self._frame)
+            except Exception as exc:
+                QMessageBox.warning(self, "导出帧失败", str(exc))
 
     def enter_editor(self):
         if self._editing or not self._loaded or self._loaded.path != self._current or self._exporting:
@@ -434,12 +574,19 @@ class MainWindow(ViewerWindow):
         self.history.state = editing.EditState(rotation=rotation, flipped=flipped)
         self._edit_baseline = self.history.state
         self._frame = 0
+        self._frames_changed = False
+        self._edit_frames = None
+        self._frame_states = []
         self._rail_was_visible = self._filmstrip.isVisible()
         self._filmstrip.hide()
         self.editor.show()
         self.canvas._stop_animation()
         self.timeline.setVisible(self._loaded.animated)
+        self.edit_scope.setVisible(self._loaded.animated)
         if self._loaded.animated:
+            self._edit_frames = Loaded(self._loaded.path, list(self._loaded.frames), self._loaded.fmt,
+                                       self._loaded.width, self._loaded.height, loop=self._loaded.loop)
+            self._frame_states = [self.history.state for _ in self._edit_frames.frames]
             total = editing.duration_ms(self._loaded) / 1000
             for spin, value in ((self.trim_start, 0), (self.trim_end, total)):
                 spin.blockSignals(True)
@@ -450,15 +597,8 @@ class MainWindow(ViewerWindow):
             self.scrub.setRange(0, len(self._loaded.frames) - 1)
             self.scrub.setValue(0)
             self.scrub.blockSignals(False)
-            while self.thumb_row.count():
-                self.thumb_row.takeAt(0).widget().deleteLater()
-            for n in range(min(8, len(self._loaded.frames))):
-                index = round(n * (len(self._loaded.frames) - 1) / max(1, min(8, len(self._loaded.frames)) - 1))
-                label = QLabel()
-                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                label.setPixmap(QPixmap.fromImage(self._loaded.frames[index].image.scaled(92, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
-                self.thumb_row.addWidget(label)
-        self.scope.setText("GIF · 全部帧统一编辑" if self._loaded.animated else "原图保留 · 保存副本")
+            self._refresh_frames()
+        self.scope.setText("逐帧编辑 · 可选择作用范围" if self._loaded.animated else "原图保留 · 保存副本")
         self._sync_edit_controls()
         self._update_actions()
         self._request_preview()
@@ -468,6 +608,11 @@ class MainWindow(ViewerWindow):
             return
         self._stop_edit_playback()
         self.history.set(**changes)
+        if self._edit_frames:
+            if self.edit_scope.currentIndex() == 0:
+                self._frame_states = [replace(s, **changes) for s in self._frame_states]
+            else:
+                self._frame_states[self._frame] = self.history.state
         self._comparing = False
         self._preview_token += 1
         self._sync_edit_controls()
@@ -495,16 +640,31 @@ class MainWindow(ViewerWindow):
     def undo_edit(self):
         if self._editing:
             self._stop_edit_playback()
+            before = self.history.state
             self.history.undo()
+            self._sync_frame_state_change(before)
             self._sync_edit_controls()
             self._request_preview()
 
     def redo_edit(self):
         if self._editing:
             self._stop_edit_playback()
+            before = self.history.state
             self.history.redo()
+            self._sync_frame_state_change(before)
             self._sync_edit_controls()
             self._request_preview()
+
+    def _sync_frame_state_change(self, before):
+        if not self._edit_frames or before == self.history.state:
+            return
+        changed = {item.name: getattr(self.history.state, item.name)
+                   for item in fields(editing.EditState)
+                   if getattr(before, item.name) != getattr(self.history.state, item.name)}
+        if self.edit_scope.currentIndex() == 0:
+            self._frame_states = [replace(state, **changed) for state in self._frame_states]
+        else:
+            self._frame_states[self._frame] = self.history.state
 
     def rotate(self, degrees):
         if self._editing:
@@ -530,7 +690,7 @@ class MainWindow(ViewerWindow):
         self._debounce.stop()
         self._preview_token += 1
         self._preview_pool.clear()
-        loaded, state, index = self._loaded, self.history.state, self._frame
+        loaded, state, index = self._edit_frames or self._loaded, self.history.state, self._frame
         if self._comparing:
             state = editing.EditState()
         self._preview_pool.start(Work(self._preview_token, self._preview_signals, lambda: editing.preview(loaded, state, index)))
@@ -552,7 +712,7 @@ class MainWindow(ViewerWindow):
         self.canvas._item.setOpacity(1)
         self._update_edit_time()
         if self._playing:
-            timing = dict(editing.selected_frames(self._loaded, self.history.state))
+            timing = dict(editing.selected_frames(self._edit_frames or self._loaded, self.history.state))
             self._play_timer.start(timing.get(self._frame, 100))
 
     def _trim_changed(self, start, seconds):
@@ -572,11 +732,18 @@ class MainWindow(ViewerWindow):
         if self._editing:
             self._stop_edit_playback()
             self._frame = index
+            if self._edit_frames:
+                self.history.state = self._frame_states[index]
+                self.history.undo_stack.clear()
+                self.history.redo_stack.clear()
+                self._sync_edit_controls()
+                self._highlight_frame()
             self._request_preview()
 
     def _update_edit_time(self):
-        elapsed = sum(max(20, f.duration or 100) for f in self._loaded.frames[:self._frame]) / 1000
-        self.time_label.setText(f"{elapsed:.2f} 秒 · 第 {self._frame + 1} 帧")
+        frames = (self._edit_frames or self._loaded).frames
+        elapsed = sum(max(20, f.duration or 100) for f in frames[:self._frame]) / 1000
+        self.time_label.setText(f"第 {self._frame + 1} / {len(frames)} 帧 · {elapsed:.2f} 秒")
         self.scrub.blockSignals(True)
         self.scrub.setValue(self._frame)
         self.scrub.blockSignals(False)
@@ -591,8 +758,12 @@ class MainWindow(ViewerWindow):
             self._request_preview()
 
     def _advance_edit_frame(self):
-        indices = [i for i, _ in editing.selected_frames(self._loaded, self.history.state)]
+        indices = [i for i, _ in editing.selected_frames(self._edit_frames or self._loaded, self.history.state)]
         self._frame = indices[(indices.index(self._frame) + 1) % len(indices)] if self._frame in indices else indices[0]
+        if self._edit_frames:
+            self.history.state = self._frame_states[self._frame]
+            self._sync_edit_controls()
+            self._highlight_frame()
         self._request_preview()
 
     def _stop_edit_playback(self):
@@ -617,12 +788,14 @@ class MainWindow(ViewerWindow):
         rotation, flipped = self._view_states.get(self._loaded.path, (0, False))
         self.canvas.set_view_state(rotation, flipped)
         self.history = editing.History()
+        self._edit_frames = None
+        self._frame_states = []
         self._update_actions()
 
     def _leave_editor(self):
         if not self._editing:
             return True
-        if self.history.state != self._edit_baseline:
+        if self.history.state != self._edit_baseline or self._frames_changed or any(s != self._edit_baseline for s in self._frame_states):
             answer = QMessageBox.question(self, "离开编辑？", "尚未保存的修改将被丢弃，原图不会改变。", QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
             if answer != QMessageBox.StandardButton.Discard:
                 return False
@@ -671,8 +844,8 @@ class MainWindow(ViewerWindow):
         self.act_slideshow.setEnabled(ready and not self._editing)
         self.act_rail.setEnabled(bool(self._files) and not self._editing)
         self.save_button.setText("正在保存…" if self._exporting else ("保存副本" if self._editing else "另存为"))
-        self.previous_button.setVisible(not self._editing)
-        self.next_button.setVisible(not self._editing)
+        self.previous_button.setVisible(not self._editing and ready)
+        self.next_button.setVisible(not self._editing and ready)
         self.previous_button.setEnabled(self.act_prev.isEnabled())
         self.next_button.setEnabled(self.act_next.isEnabled())
         name = Path(self._current).name if self._current else "图片查看器"
@@ -683,7 +856,7 @@ class MainWindow(ViewerWindow):
         if not self._loaded or self._loaded.path != self._current or self._exporting:
             return
         self._stop_edit_playback()
-        loaded = self._loaded
+        loaded = self._edit_frames or self._loaded
         rotation, flipped = self._view_states.get(loaded.path, (0, False))
         state = self.history.state if self._editing else editing.EditState(rotation=rotation, flipped=flipped)
         dialog = ExportDialog(loaded, state, self._frame if self._editing else self.canvas._frame_index, self)
@@ -695,7 +868,11 @@ class MainWindow(ViewerWindow):
             return
         fmt = dialog.format.currentText()
         ext = {"JPEG": "jpg", "PNG": "png", "WebP": "webp", "GIF": "gif", "动画 WebP": "webp"}[fmt]
-        destination, _ = QFileDialog.getSaveFileName(self, "保存副本", str(Path(loaded.path).parent / f"{name}.{ext}"), f"{fmt} (*.{ext})")
+        picker = QFileDialog(self, "选择保存位置", str(Path(loaded.path).parent / f"{name}.{ext}"), f"{fmt} (*.{ext})")
+        picker.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        picker.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        picker.selectFile(f"{name}.{ext}")
+        destination = picker.selectedFiles()[0] if picker.exec() == QDialog.DialogCode.Accepted else ""
         if not destination:
             return
         if Path(destination).suffix.lower() != f".{ext}":
@@ -709,7 +886,8 @@ class MainWindow(ViewerWindow):
         self.save_button.setText("正在保存…")
         self._update_actions()
         def save():
-            editing.export_image(loaded, state, destination, fmt, quality, index, background)
+            editing.export_image(loaded, state, destination, fmt, quality, index, background,
+                                 self._frame_states if self._edit_frames else None)
             return destination
         self._export_pool.start(Work(0, self._export_signals, save))
 
