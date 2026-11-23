@@ -38,6 +38,7 @@ jobs:
           QT_SCALE_FACTOR: '2'
 
   build-installer:
+    if: github.event_name == 'workflow_dispatch'
     name: Build Windows installer
     needs: test
     runs-on: windows-latest
@@ -76,7 +77,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: LumenView-Windows
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: error
           path: |
             dist/installer/LumenView-Setup.exe
