@@ -57,7 +57,7 @@ def check_decoders() -> int:
 def ui_smoke(app: QApplication) -> None:
     theme.apply_theme(app)
 
-    from lumenview.window import MainWindow
+    from lumenview.modern import MainWindow
 
     window = MainWindow()
     window.resize(1180, 760)

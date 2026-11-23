@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication
 
 from . import icons, theme
-from .window import MainWindow
+from .modern import MainWindow
 
 
 def main() -> int:
@@ -25,6 +25,9 @@ def main() -> int:
 
     window = MainWindow()
     window.show()
+
+    if "--smoke-test" in sys.argv:
+        QTimer.singleShot(750, app.quit)
 
     files = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
     if files:

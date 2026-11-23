@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lumenview import theme  # noqa: E402
-from lumenview.window import MainWindow  # noqa: E402
+from lumenview.modern import MainWindow  # noqa: E402
 
 SAMPLES = os.path.join(ROOT, "samples")
 failures: list[str] = []
@@ -66,10 +66,10 @@ def main() -> int:
 
     before = window._files.index(window._current)
     window.next()
-    ok = wait_until(app, lambda: window._loaded is not None and window._index() == before + 1)
+    ok = wait_until(app, lambda: window._loaded is not None and window._index() == before + 1 and window._loaded.path == window._current)
     check("navigate next", ok)
     window.previous()
-    ok = wait_until(app, lambda: window._loaded is not None and window._index() == before)
+    ok = wait_until(app, lambda: window._loaded is not None and window._index() == before and window._loaded.path == window._current)
     check("navigate previous", ok)
 
     for path in ("sample.psd", "sample.svg", "sample.heic", "sample.tiff"):
@@ -100,7 +100,7 @@ def main() -> int:
     window._toggle_rail(False)
     check("rail hides", not window._filmstrip.isVisible())
     window._toggle_rail(True)
-    check("rail returns", window._filmstrip.isVisible() == rail_was_visible)
+    check("rail returns", window._filmstrip.isVisible())
 
     window.toggle_fullscreen()
     check("fullscreen on", window.isFullScreen() and not window.toolbar.isVisible())

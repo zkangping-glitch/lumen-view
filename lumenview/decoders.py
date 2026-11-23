@@ -30,6 +30,8 @@ PIL_EXTS = {
     "jpx", "pcx", "tga", "ppm", "pgm", "pbm", "pnm", "dds", "sgi", "xbm",
 }
 SUPPORTED_EXTS = PIL_EXTS | RAW_EXTS | SVG_EXTS | PSD_EXTS
+MAX_PIXELS = 64_000_000
+MAX_ANIMATION_BYTES = 256 * 1024 * 1024
 
 # Pillow format id -> human label
 _LABELS = {
@@ -57,6 +59,7 @@ class Loaded:
     file_size: int = 0
     exif: dict = field(default_factory=dict)
     pages: int = 1
+    loop: int = 0
 
     @property
     def animated(self) -> bool:
@@ -69,6 +72,10 @@ class Loaded:
 
 class DecodeError(Exception):
     """A user-presentable decoding failure."""
+
+
+class ResourceLimitError(DecodeError):
+    """A resource policy rejection must not be bypassed by another decoder."""
 
 
 # --------------------------------------------------------------------------- #
@@ -164,7 +171,10 @@ def _load_svg(path: str) -> Loaded:
     with open(path, "rb") as fh:
         data = fh.read()
     if path.lower().endswith(".svgz") or data[:2] == b"\x1f\x8b":
-        data = gzip.decompress(data)
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+            data = compressed.read(16 * 1024 * 1024 + 1)
+        if len(data) > 16 * 1024 * 1024:
+            raise ResourceLimitError("SVG 解压后超过 16 MB 限制")
     renderer = QSvgRenderer(QByteArray(data))
     if not renderer.isValid():
         raise DecodeError("SVG 解析失败（文件损坏或包含不支持的语法）")
@@ -179,8 +189,8 @@ def _load_svg(path: str) -> Loaded:
 
     # render vectors big enough to stay crisp when zoomed in
     target = 2048.0
-    scale = max(1.0, min(target, 4096.0) / max(dw, dh))
-    w, h = int(round(dw * scale)), int(round(dh * scale))
+    scale = target / max(dw, dh)
+    w, h = max(1, int(round(dw * scale))), max(1, int(round(dh * scale)))
     img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
     img.fill(Qt.GlobalColor.transparent)
     painter = QPainter(img)
@@ -208,6 +218,8 @@ def _load_psd(path: str) -> Loaded:
     except Exception as exc:
         raise DecodeError(f"PSD 解析失败：{exc}") from exc
 
+    if psd.width * psd.height > MAX_PIXELS:
+        raise ResourceLimitError("PSD 超过 6400 万像素的内存保护限制")
     im = None
     try:
         im = psd.topil()
@@ -241,7 +253,11 @@ def _load_raw(path: str) -> Loaded:
 
     try:
         with rawpy.imread(path) as raw:
+            if raw.sizes.width * raw.sizes.height > MAX_PIXELS:
+                raise ResourceLimitError("RAW 超过 6400 万像素的内存保护限制")
             rgb = raw.postprocess(use_camera_wb=True, output_bps=8)
+    except ResourceLimitError:
+        raise
     except Exception as exc:
         raise DecodeError(f"RAW 解码失败：{exc}") from exc
 
@@ -256,7 +272,19 @@ def _load_raw(path: str) -> Loaded:
 
 def _load_pillow(path: str) -> Loaded:
     try:
-        im = Image.open(path)
+        with Image.open(path) as image:
+            if image.width * image.height > MAX_PIXELS:
+                raise ResourceLimitError("图片超过 6400 万像素的内存保护限制")
+            return _decode_pillow(path, image)
+    except DecodeError:
+        raise
+    except Exception as exc:
+        raise DecodeError(f"读取图片时出错：{exc}") from exc
+
+
+def _decode_pillow(path: str, im: Image.Image) -> Loaded:
+    try:
+        im.seek(0)
     except UnidentifiedImageError:
         raise DecodeError("无法识别这个文件：可能已损坏，或者它其实不是图片") from None
     except Exception as exc:
@@ -268,17 +296,22 @@ def _load_pillow(path: str) -> Loaded:
     animated = (
         n_frames > 1
         and getattr(im, "is_animated", False)
-        and fmt_id not in ("HEIF", "HEIC")
+        and fmt_id not in ("HEIF", "HEIC", "TIFF")
     )
 
     frames: list[Frame] = []
     exif: dict = {}
     if animated:
+        if n_frames * im.width * im.height * 4 > MAX_ANIMATION_BYTES:
+            raise ResourceLimitError("动图超过 256 MB 解码预算，请使用更小的文件")
+        allocated = 0
         for index, frame in enumerate(ImageSequence.Iterator(im)):
+            frame.load()  # WebP publishes duration only after loading the frame.
+            allocated += frame.width * frame.height * 4
+            if allocated > MAX_ANIMATION_BYTES:
+                raise ResourceLimitError("动图超过 256 MB 解码预算")
             duration = int(frame.info.get("duration", 0) or im.info.get("duration", 0) or 0)
             frames.append(Frame(_pil_to_qimage(frame), max(duration, 20) if duration else 100))
-            if index >= 600:  # keep memory sane for absurd GIFs
-                break
         exif = _exif_summary(im)
         width, height = im.size
         mode = im.mode
@@ -300,6 +333,7 @@ def _load_pillow(path: str) -> Loaded:
     loaded = Loaded(
         path=path, frames=frames, fmt=fmt, width=width, height=height,
         mode=mode, file_size=os.path.getsize(path), exif=exif, pages=max(n_frames, 1),
+        loop=int(im.info.get("loop", 0)),
     )
     if n_frames > 1 and not animated:
         loaded.exif["页数"] = f"{n_frames} 页（显示第 1 页）"
@@ -308,6 +342,8 @@ def _load_pillow(path: str) -> Loaded:
 
 def _load_qt(path: str) -> Loaded:
     reader = QImageReader(path)
+    if reader.size().width() * reader.size().height() > MAX_PIXELS:
+        raise ResourceLimitError("图片超过 6400 万像素的内存保护限制")
     reader.setAutoTransform(True)
     img = reader.read()
     if img.isNull():
@@ -343,6 +379,8 @@ def load_image(path: str) -> Loaded:
     if ext in PIL_EXTS:
         try:
             return _load_pillow(path)
+        except ResourceLimitError:
+            raise
         except DecodeError as exc:
             # some Pillow builds lack a codec while Qt still has one (or vice versa)
             try:
@@ -352,6 +390,8 @@ def load_image(path: str) -> Loaded:
     # unknown extension: try both before giving up
     try:
         return _load_pillow(path)
+    except ResourceLimitError:
+        raise
     except DecodeError:
         return _load_qt(path)
 
@@ -386,6 +426,8 @@ def load_thumbnail(path: str, size: int = 160) -> QImage:
                 return _scaled(_pil_to_qimage(im), size)
         if ext in PIL_EXTS:
             with Image.open(path) as im:
+                if im.width * im.height > MAX_PIXELS:
+                    raise ResourceLimitError("图片超过缩略图内存预算")
                 im.seek(0)
                 im.load()
                 return _scaled(_pil_to_qimage(im), size)

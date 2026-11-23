@@ -11,13 +11,38 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox,
-    QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import decoders, icons, theme
 from .canvas import ImageCanvas
 from .decoders import DecodeError, Loaded
 from .filmstrip import Filmstrip
+
+
+class _FilenameLabel(QLabel):
+    """Keep the full name accessible without letting it widen the window."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+
+    def setText(self, text):
+        self._full_text = text
+        self.setToolTip(text)
+        self.setAccessibleName(text)
+        self._refresh()
+
+    def _refresh(self):
+        super().setText(self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideMiddle, self.contentsRect().width()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh()
 
 
 class _DecodeSignals(QObject):
@@ -53,6 +78,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Lumen View")
         self.setMinimumSize(960, 640)
+        self.setAcceptDrops(True)
 
         self._settings = QSettings("Lumen", "LumenView")
         self._pool = QThreadPool(self)
@@ -212,33 +238,37 @@ class MainWindow(QMainWindow):
     def _build_footer(self, parent: QWidget) -> QWidget:
         footer = QWidget(parent)
         footer.setObjectName("Footer")
-        footer.setFixedHeight(26)
+        footer.setMinimumHeight(52)
 
-        layout = QHBoxLayout(footer)
-        layout.setContentsMargins(240, 0, 6, 2)
-        layout.setSpacing(8)
+        layout = QVBoxLayout(footer)
+        layout.setContentsMargins(240, 6, 6, 6)
+        layout.setSpacing(4)
 
-        self.name_label = QLabel("", footer)
+        self.name_label = _FilenameLabel(footer)
         self.name_label.setObjectName("PillName")
         self.info_label = QLabel("", footer)
         self.info_label.setObjectName("PillMeta")
         self.count_label = QLabel("", footer)
         self.count_label.setObjectName("PillMeta")
-        self.zoom_label = QLabel("", footer)
+        self.zoom_label = QPushButton("", footer)
         self.zoom_label.setObjectName("Zoom")
+        self.zoom_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.zoom_label.setToolTip("点击恢复到 100% 实际大小")
+        self.zoom_label.setAccessibleName("恢复到 100% 实际大小")
+        self.zoom_label.clicked.connect(self.actual_size)
 
-        self._dot_a = QLabel("·", footer)
         self._dot_b = QLabel("·", footer)
-        for dot in (self._dot_a, self._dot_b):
-            dot.setObjectName("PillMeta")
+        self._dot_b.setObjectName("PillMeta")
 
         layout.addWidget(self.name_label)
-        layout.addWidget(self._dot_a)
-        layout.addWidget(self.info_label)
-        layout.addWidget(self._dot_b)
-        layout.addWidget(self.count_label)
-        layout.addStretch(1)
-        layout.addWidget(self.zoom_label)
+        metadata = QHBoxLayout()
+        metadata.setSpacing(8)
+        metadata.addWidget(self.info_label)
+        metadata.addWidget(self._dot_b)
+        metadata.addWidget(self.count_label)
+        metadata.addStretch(1)
+        metadata.addWidget(self.zoom_label)
+        layout.addLayout(metadata)
         footer.hide()
         return footer
 
@@ -363,7 +393,7 @@ class MainWindow(QMainWindow):
                     hwnd, value_id, ctypes.byref(data), ctypes.sizeof(data)
                 )
 
-            attribute(20, 1)  # DWMWA_USE_IMMERSIVE_DARK_MODE
+            attribute(20, int(theme.BG == "#171819"))  # DWMWA_USE_IMMERSIVE_DARK_MODE
             attribute(35, theme.colorref(theme.BG))  # caption colour
             attribute(36, theme.colorref(theme.TEXT))  # caption text
             attribute(34, theme.colorref(theme.BG))  # border colour
@@ -384,7 +414,7 @@ class MainWindow(QMainWindow):
 
     def _sync_footer_margin(self) -> None:
         left = 240 if self._filmstrip.isVisible() else 18
-        self.footer.layout().setContentsMargins(left, 0, 6, 2)
+        self.footer.layout().setContentsMargins(left, 6, 6, 6)
 
     # ------------------------------------------------------------------ #
     # settings
@@ -436,7 +466,7 @@ class MainWindow(QMainWindow):
                 self._set_folder(files, files[0])
             return
         if not os.path.isfile(path):
-            self.show_message("文件不存在", path)
+            self.show_message("文件不存在", path, [])
             return
 
         self._settings.setValue("paths/last", os.path.dirname(path))
@@ -469,6 +499,7 @@ class MainWindow(QMainWindow):
     def _load(self, path: str) -> None:
         self._current = path
         self._token += 1
+        self._pool.clear()
         token = self._token
         self._update_title()
         self._update_count()
@@ -553,13 +584,13 @@ class MainWindow(QMainWindow):
         if not self._loaded:
             return
         self.canvas.rotate_by(degrees)
-        self._view_states[self._current] = self.canvas.view_state()
+        self._view_states[self._loaded.path] = self.canvas.view_state()
 
     def flip(self) -> None:
         if not self._loaded:
             return
         self.canvas.flip()
-        self._view_states[self._current] = self.canvas.view_state()
+        self._view_states[self._loaded.path] = self.canvas.view_state()
 
     def toggle_slideshow(self) -> None:
         if self._slideshow.isActive():
